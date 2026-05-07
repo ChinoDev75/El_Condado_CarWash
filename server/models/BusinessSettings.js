@@ -56,6 +56,29 @@ const transferAccountSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
+const unavailableBlockSchema = new mongoose.Schema({
+  date: {
+    type: Date,
+    required: true
+  },
+  start: {
+    type: String,
+    required: true,
+    match: [/^\d{2}:\d{2}$/, 'Hora inicial invalida']
+  },
+  end: {
+    type: String,
+    required: true,
+    match: [/^\d{2}:\d{2}$/, 'Hora final invalida']
+  },
+  note: {
+    type: String,
+    trim: true,
+    maxlength: 120,
+    default: 'Descanso'
+  }
+}, { timestamps: true });
+
 const businessSettingsSchema = new mongoose.Schema({
   key: {
     type: String,
@@ -83,6 +106,10 @@ const businessSettingsSchema = new mongoose.Schema({
   transferAccount: {
     type: transferAccountSchema,
     default: () => ({})
+  },
+  unavailableBlocks: {
+    type: [unavailableBlockSchema],
+    default: () => []
   }
 }, {
   timestamps: true

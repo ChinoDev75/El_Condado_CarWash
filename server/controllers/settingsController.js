@@ -2,8 +2,10 @@ const { isValidObjectId, parseBookingDate, sanitizeString } = require('../utils/
 const {
   getAvailabilityForService,
   getBusinessSettings,
+  normalizeUnavailableBlocks,
   normalizeWeeklySchedule
 } = require('../utils/scheduler');
+const { getDateKeyFromStoredDate } = require('../utils/dateTime');
 const { auditLog } = require('../utils/auditLogger');
 
 const serializeTransferAccount = (transferAccount = {}) => ({
@@ -22,14 +24,27 @@ const sanitizeTransferAccount = (value = {}) => ({
   instructions: sanitizeString(value.instructions, 300)
 });
 
+const serializeUnavailableBlocks = (blocks = []) => (
+  blocks.map((block) => ({
+    _id: block._id,
+    date: getDateKeyFromStoredDate(block.date),
+    start: block.start,
+    end: block.end,
+    note: block.note || 'Descanso'
+  }))
+);
+
+const serializeScheduleSettings = (settings) => ({
+  weeklySchedule: settings.weeklySchedule,
+  slotIntervalMinutes: settings.slotIntervalMinutes,
+  transferAccount: serializeTransferAccount(settings.transferAccount),
+  unavailableBlocks: serializeUnavailableBlocks(settings.unavailableBlocks)
+});
+
 exports.getSchedule = async (req, res) => {
   try {
     const settings = await getBusinessSettings();
-    return res.status(200).json({
-      weeklySchedule: settings.weeklySchedule,
-      slotIntervalMinutes: settings.slotIntervalMinutes,
-      transferAccount: serializeTransferAccount(settings.transferAccount)
-    });
+    return res.status(200).json(serializeScheduleSettings(settings));
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Error al obtener horario' });
@@ -48,14 +63,14 @@ exports.updateSchedule = async (req, res) => {
     settings.weeklySchedule = normalizeWeeklySchedule(req.body.weeklySchedule);
     settings.slotIntervalMinutes = slotIntervalMinutes;
     settings.transferAccount = sanitizeTransferAccount(req.body.transferAccount || settings.transferAccount);
+    settings.unavailableBlocks = normalizeUnavailableBlocks(req.body.unavailableBlocks || settings.unavailableBlocks);
     await settings.save();
 
-    auditLog('settings.schedule_updated', { adminId: req.user.id });
-    return res.status(200).json({
-      weeklySchedule: settings.weeklySchedule,
-      slotIntervalMinutes: settings.slotIntervalMinutes,
-      transferAccount: serializeTransferAccount(settings.transferAccount)
+    auditLog('settings.schedule_updated', {
+      adminId: req.user.id,
+      unavailableBlockCount: settings.unavailableBlocks.length
     });
+    return res.status(200).json(serializeScheduleSettings(settings));
   } catch (error) {
     console.error(error);
     return res.status(400).json({ message: 'Error al actualizar horario' });

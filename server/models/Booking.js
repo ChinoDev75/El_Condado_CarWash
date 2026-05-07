@@ -66,6 +66,12 @@ const bookingSchema = new mongoose.Schema({
     default: 'card',
     index: true
   },
+  washMode: {
+    type: String,
+    enum: ['at_home', 'drop_off', 'pickup_and_return'],
+    default: null,
+    index: true
+  },
   subtotalCents: {
     type: Number,
     default: 0,

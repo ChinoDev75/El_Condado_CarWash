@@ -8,7 +8,6 @@ import Promotions from "../components/sections/Promotions";
 import Memberships from "../components/sections/Memberships";
 import Extras from "../components/sections/Extras";
 import ReviewsSection from "../components/sections/ReviewsSection";
-import Stats from "../components/sections/Stats";
 import Footer from "../components/layout/Footer";
 
 export default function Home() {
@@ -94,7 +93,6 @@ export default function Home() {
         <Memberships sectionTitle={sectionTitle} onAuthOpen={() => setAuthOpen(true)} />
         <Extras sectionTitle={sectionTitle} onAuthOpen={() => setAuthOpen(true)} />
         <ReviewsSection sectionTitle={sectionTitle} />
-        {/* <Stats /> */}
       </main>
 
       <Footer onAuthOpen={() => setAuthOpen(true)} onTermsOpen={() => setTermsOpen(true)} />

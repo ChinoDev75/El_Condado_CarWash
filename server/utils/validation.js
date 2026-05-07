@@ -7,6 +7,7 @@ const {
 const BOOKING_STATUSES = new Set(['pending', 'confirmed', 'completed', 'cancelled']);
 const PAYMENT_STATUSES = new Set(['unpaid', 'paid', 'failed']);
 const SERVICE_CATEGORIES = new Set(['lavado', 'promo', 'membresia', 'extra']);
+const WASH_MODES = new Set(['at_home', 'drop_off', 'pickup_and_return']);
 
 const SERVICE_FIELDS = [
   'title',
@@ -151,6 +152,10 @@ const parseServicePriceCents = (price) => {
   return Math.round(numeric * 100);
 };
 
+const getWashMode = (value) => (
+  WASH_MODES.has(value) ? value : null
+);
+
 const pickServiceInput = (body) => {
   const input = {};
 
@@ -209,6 +214,7 @@ module.exports = {
   BOOKING_STATUSES,
   PAYMENT_STATUSES,
   SERVICE_CATEGORIES,
+  WASH_MODES,
   PASSWORD_POLICY_MESSAGE,
   PLATE_POLICY_MESSAGE,
   sanitizeString,
@@ -222,6 +228,7 @@ module.exports = {
   isValidPlate,
   parseBookingDate,
   isValidBookingTime,
+  getWashMode,
   parseServicePriceCents,
   pickServiceInput
 };

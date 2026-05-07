@@ -35,13 +35,15 @@ const defaultSettings = {
     accountNumber: 'Configura tu numero de cuenta',
     accountType: 'Monetaria',
     instructions: 'Despues de transferir, envia el comprobante por WhatsApp para confirmar tu reserva.'
-  }
+  },
+  unavailableBlocks: []
 };
 
 const normalizeClientSettings = (settings = {}) => ({
   ...defaultSettings,
   ...settings,
   weeklySchedule: Array.isArray(settings.weeklySchedule) ? settings.weeklySchedule : defaultSettings.weeklySchedule,
+  unavailableBlocks: Array.isArray(settings.unavailableBlocks) ? settings.unavailableBlocks : [],
   transferAccount: {
     ...defaultSettings.transferAccount,
     ...(settings.transferAccount || {})
@@ -76,8 +78,16 @@ const emptyManualBooking = {
   plate: '',
   paymentMethod: 'cash',
   paymentStatus: 'unpaid',
+  washMode: 'drop_off',
   internalNotes: ''
 };
+
+const emptyUnavailableBlock = () => ({
+  date: todayDateKey(),
+  start: '12:00',
+  end: '13:00',
+  note: ''
+});
 
 const formatCurrency = (cents = 0) => `Q ${(cents / 100).toFixed(2)}`;
 const parsePriceCents = (price) => {
@@ -89,6 +99,16 @@ const calculateBookingPoints = (booking) => {
   const baseCents = booking.subtotalCents || booking.totalCents || parsePriceCents(booking.service?.price);
   return baseCents > 0 ? Math.max(1, Math.floor(baseCents / 1000)) : 0;
 };
+
+const washModeOptions = [
+  { value: 'at_home', label: 'A domicilio', detail: 'Uso su luz y agua' },
+  { value: 'drop_off', label: 'Llegar a dejar', detail: 'Cliente lo deja en casa C094' },
+  { value: 'pickup_and_return', label: 'Ir a recoger', detail: 'Recojo, llevo a C094 y devuelvo' }
+];
+
+const getWashModeLabel = (value) => (
+  washModeOptions.find((option) => option.value === value)?.label || 'Sin definir'
+);
 
 const paymentMethodLabel = (method) => {
   if (method === 'cash') return 'Efectivo';
@@ -142,6 +162,7 @@ const buildCalendarEvents = (bookings) => {
       title: booking.service?.title || 'Servicio',
       customer: booking.user?.name || booking.customerName || 'Cliente',
       plate: booking.plate,
+      washMode: booking.washMode,
       status: booking.status,
       paymentStatus: booking.paymentStatus,
       paymentMethod: booking.paymentMethod,
@@ -161,6 +182,7 @@ const buildCalendarEvents = (bookings) => {
           customer: booking.user?.name || booking.customerName || 'Cliente',
           visitId: visit._id,
           plate: booking.plate,
+          washMode: booking.washMode,
           status: visit.status,
           paymentStatus: booking.paymentStatus,
           paymentMethod: booking.paymentMethod,
@@ -192,6 +214,7 @@ const buildBookingRows = (bookings) => {
       serviceId,
       customer,
       contact,
+      washMode: booking.washMode,
       dateKey: formatDateKey(booking.date),
       type: getBookingType({ ...booking, service }),
       isMembershipVisit: false
@@ -214,6 +237,7 @@ const buildBookingRows = (bookings) => {
           serviceId,
           customer,
           contact,
+          washMode: booking.washMode,
           date: visit.date,
           dateKey: formatDateKey(visit.date),
           time: visit.time,
@@ -312,6 +336,7 @@ export default function AdminConsole() {
     waMsg: '',
     featuresText: ''
   });
+  const [unavailableBlockForm, setUnavailableBlockForm] = useState(emptyUnavailableBlock);
   const [dashboardNow] = useState(() => new Date());
 
   const fetchAllData = useCallback(async () => {
@@ -651,16 +676,77 @@ export default function AdminConsole() {
     }));
   };
 
+  const handleUnavailableBlockChange = (event) => {
+    const { name, value } = event.target;
+    setUnavailableBlockForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const persistScheduleSettings = async (nextSettings, successMessage) => {
+    const settings = await apiFetch('/settings/schedule', {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(nextSettings)
+    });
+
+    setData((prev) => ({ ...prev, settings: normalizeClientSettings(settings) }));
+    showAlert({ type: 'success', title: 'Horario actualizado', message: successMessage });
+  };
+
+  const addUnavailableBlock = async () => {
+    const { date, start, end, note } = unavailableBlockForm;
+
+    if (!date || !start || !end) {
+      showAlert({ type: 'warning', title: 'Descanso incompleto', message: 'Selecciona fecha, hora de inicio y hora de fin.' });
+      return;
+    }
+
+    if (date < todayDateKey()) {
+      showAlert({ type: 'warning', title: 'Fecha invalida', message: 'El descanso debe ser para hoy o una fecha futura.' });
+      return;
+    }
+
+    if (end <= start) {
+      showAlert({ type: 'warning', title: 'Horario invalido', message: 'La hora final debe ser mayor que la hora inicial.' });
+      return;
+    }
+
+    const nextBlock = {
+      date,
+      start,
+      end,
+      note: note.trim() || 'Descanso'
+    };
+
+    const nextSettings = {
+      ...data.settings,
+      unavailableBlocks: [...(data.settings.unavailableBlocks || []), nextBlock]
+        .sort((a, b) => `${a.date} ${a.start}`.localeCompare(`${b.date} ${b.start}`))
+    };
+
+    try {
+      await persistScheduleSettings(nextSettings, 'El descanso quedo guardado y ya bloquea ese rango en la agenda.');
+      setUnavailableBlockForm(emptyUnavailableBlock());
+    } catch (err) {
+      showAlert({ type: 'error', title: 'No se pudo guardar el descanso', message: err.message || 'Intenta de nuevo.' });
+    }
+  };
+
+  const removeUnavailableBlock = async (index) => {
+    const nextSettings = {
+      ...data.settings,
+      unavailableBlocks: (data.settings.unavailableBlocks || []).filter((_, currentIndex) => currentIndex !== index)
+    };
+
+    try {
+      await persistScheduleSettings(nextSettings, 'El descanso se quito y ese rango vuelve a depender de la disponibilidad normal.');
+    } catch (err) {
+      showAlert({ type: 'error', title: 'No se pudo quitar el descanso', message: err.message || 'Intenta de nuevo.' });
+    }
+  };
+
   const saveSchedule = async () => {
     try {
-      const settings = await apiFetch('/settings/schedule', {
-        method: 'PUT',
-        token,
-        body: JSON.stringify(data.settings)
-      });
-
-      setData((prev) => ({ ...prev, settings: normalizeClientSettings(settings) }));
-      showAlert({ type: 'success', title: 'Horario actualizado', message: 'Tu horario y datos de transferencia quedaron guardados.' });
+      await persistScheduleSettings(data.settings, 'Tu horario, descansos y datos de transferencia quedaron guardados.');
     } catch (err) {
       showAlert({ type: 'error', title: 'No se pudo actualizar el horario', message: err.message || 'Intenta de nuevo.' });
     }
@@ -733,7 +819,8 @@ export default function AdminConsole() {
         token,
         body: JSON.stringify({
           ...manualForm,
-          plate: normalizedPlate
+          plate: normalizedPlate,
+          washMode: manualForm.washMode
         })
       });
       setManualModalOpen(false);
@@ -977,6 +1064,14 @@ export default function AdminConsole() {
               </select>
             </div>
           </div>
+          <div>
+            <label style={{ display: 'block', color: '#a0aec0', fontSize: '0.85rem', fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase' }}>Modo de lavado</label>
+            <select name="washMode" value={manualForm.washMode} onChange={handleManualChange} style={inputStyle} required>
+              {washModeOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label} - {option.detail}</option>
+              ))}
+            </select>
+          </div>
           <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
               <label style={{ display: 'block', color: '#a0aec0', fontSize: '0.85rem', fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase' }}>Metodo de pago</label>
@@ -1076,6 +1171,7 @@ export default function AdminConsole() {
                       <strong style={{ color: '#D4AF37' }}>{booking.service?.title || 'Membresia'}</strong>
                       <span style={{ color: '#a0aec0', fontSize: '0.82rem' }}>Placa {booking.plate}</span>
                     </div>
+                    <p style={{ margin: '8px 0 0', color: '#718096', fontSize: '0.8rem' }}>{getWashModeLabel(booking.washMode)}</p>
                     <div style={{ display: 'grid', gap: '8px', marginTop: '10px' }}>
                       {(booking.membershipSchedule || []).filter((visit) => visit.status === 'scheduled').map((visit) => (
                         <div key={visit._id || `${booking._id}-${visit.date}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', color: '#a0aec0', fontSize: '0.84rem' }}>
@@ -1100,6 +1196,7 @@ export default function AdminConsole() {
                     <div>
                       <p style={{ margin: 0, color: row.isMembershipVisit ? '#D4AF37' : '#fff', fontWeight: 800, fontSize: '0.88rem' }}>{row.service?.title || 'Servicio'}</p>
                       <p style={{ margin: '3px 0 0', color: '#718096', fontSize: '0.78rem' }}>{formatDate(row.date)} · {row.time} · {row.plate}</p>
+                      <p style={{ margin: '3px 0 0', color: '#718096', fontSize: '0.74rem' }}>{getWashModeLabel(row.washMode)}</p>
                     </div>
                     <span style={{ color: row.status === 'completed' ? '#25D366' : '#a0aec0', fontSize: '0.75rem', fontWeight: 800 }}>{row.status}</span>
                   </div>
@@ -1193,6 +1290,7 @@ export default function AdminConsole() {
                     <p style={{ margin: 0, color: row.isMembershipVisit ? '#D4AF37' : '#fff', fontWeight: 900, fontSize: '0.86rem' }}>{row.service?.title || 'Servicio'}</p>
                     <p style={{ margin: '5px 0 0', color: '#a0aec0', fontSize: '0.8rem' }}>{formatDate(row.date)} · {row.time}</p>
                     <p style={{ margin: '4px 0 0', color: '#718096', fontSize: '0.78rem' }}>{row.user?.name || row.customerName || 'Cliente manual'} · {row.plate}</p>
+                    <p style={{ margin: '4px 0 0', color: '#718096', fontSize: '0.74rem' }}>{getWashModeLabel(row.washMode)}</p>
                   </div>
                 ))}
                 {upcomingBookingRows.length === 0 && (
@@ -1424,6 +1522,7 @@ export default function AdminConsole() {
                             : `${calculateBookingPoints(b)} pts al completar`}
                         </div>
                         <div style={{ fontSize: '0.75rem', color: '#718096' }}>{formatCurrency(b.totalCents || parsePriceCents(b.service?.price))} · {paymentMethodLabel(b.paymentMethod)}</div>
+                        <div style={{ fontSize: '0.74rem', color: '#718096' }}>{getWashModeLabel(b.washMode)}</div>
                       </td>
                       <td style={{ padding: '1.5rem 1rem' }}>
                         <span style={{ background: '#1a202c', padding: '4px 10px', borderRadius: '6px', fontFamily: 'monospace', fontWeight: 700 }}>{b.plate}</span>
@@ -1539,6 +1638,84 @@ export default function AdminConsole() {
                 <option value="45">45 minutos</option>
                 <option value="60">60 minutos</option>
               </select>
+            </div>
+
+            <div className="glass-panel" style={{ padding: '2rem', borderRadius: '24px', marginBottom: '2rem' }}>
+              <div style={{ marginBottom: '1.25rem' }}>
+                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.1rem' }}>Descansos y compromisos</h3>
+                <p style={{ color: '#718096', margin: '6px 0 0', fontSize: '0.9rem' }}>
+                  Bloquea solo un rango de horas en una fecha especifica sin cerrar todo el dia.
+                </p>
+              </div>
+
+              <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                <InputField
+                  label="Fecha"
+                  name="date"
+                  type="date"
+                  min={todayDateKey()}
+                  value={unavailableBlockForm.date}
+                  onChange={handleUnavailableBlockChange}
+                />
+                <InputField
+                  label="Motivo"
+                  name="note"
+                  value={unavailableBlockForm.note}
+                  onChange={handleUnavailableBlockChange}
+                  placeholder="Compromiso, almuerzo, mandado..."
+                />
+                <InputField
+                  label="Inicio"
+                  name="start"
+                  type="time"
+                  value={unavailableBlockForm.start}
+                  onChange={handleUnavailableBlockChange}
+                />
+                <InputField
+                  label="Fin"
+                  name="end"
+                  type="time"
+                  value={unavailableBlockForm.end}
+                  onChange={handleUnavailableBlockChange}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.25rem' }}>
+                <button type="button" onClick={addUnavailableBlock} style={{ ...ghostBtn, padding: '10px 14px' }}>
+                  Agregar descanso
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {(data.settings.unavailableBlocks || []).map((block, index) => (
+                  <div
+                    key={block._id || `${block.date}-${block.start}-${block.end}-${index}`}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr auto',
+                      gap: '12px',
+                      alignItems: 'center',
+                      padding: '12px 0',
+                      borderTop: '1px solid rgba(255,255,255,0.05)'
+                    }}
+                  >
+                    <div>
+                      <p style={{ margin: 0, color: '#fff', fontWeight: 800 }}>{block.note || 'Descanso'}</p>
+                      <p style={{ margin: '4px 0 0', color: '#718096', fontSize: '0.85rem' }}>
+                        {formatDate(block.date, { weekday: undefined })} · {block.start} - {block.end}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => removeUnavailableBlock(index)} style={{ ...ghostBtn, padding: '7px 10px', fontSize: '0.75rem' }}>
+                      Quitar
+                    </button>
+                  </div>
+                ))}
+                {(data.settings.unavailableBlocks || []).length === 0 && (
+                  <p style={{ margin: 0, color: '#718096', fontSize: '0.9rem' }}>
+                    No tienes descansos registrados.
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="glass-panel" style={{ padding: '2rem', borderRadius: '24px', marginBottom: '2rem' }}>

@@ -22,6 +22,14 @@ const formatDate = (value, options = {}) => (
   })
 );
 
+const washModeLabels = {
+  at_home: "A domicilio",
+  drop_off: "Llegar a dejar",
+  pickup_and_return: "Ir a recoger"
+};
+
+const getWashModeLabel = (value) => washModeLabels[value] || "Sin definir";
+
 const buildCustomerEvents = (bookings) => {
   const events = [];
 
@@ -35,6 +43,7 @@ const buildCustomerEvents = (bookings) => {
       time: booking.time,
       title: booking.service?.title || 'Servicio',
       plate: booking.plate,
+      washMode: booking.washMode,
       status: booking.status,
       paymentStatus: booking.paymentStatus,
       paymentMethod: booking.paymentMethod,
@@ -55,6 +64,7 @@ const buildCustomerEvents = (bookings) => {
           time: visit.time,
           title: visit.title || booking.service?.title || 'Lavado de membresia',
           plate: booking.plate,
+          washMode: booking.washMode,
           status: visit.status,
           paymentStatus: booking.paymentStatus,
           paymentMethod: booking.paymentMethod,
@@ -409,6 +419,7 @@ export default function CustomerDashboard() {
     date: event.date,
     time: event.time,
     plate: event.plate,
+    washMode: event.washMode,
     status: event.isMembershipVisit ? 'confirmed' : event.status,
     paymentStatus: event.paymentStatus,
     paymentMethod: event.paymentMethod,
@@ -565,6 +576,9 @@ export default function CustomerDashboard() {
                         <p style={{ color: '#718096', fontSize: '0.88rem', margin: '4px 0' }}>
                           {formatDate(booking.date)} · {booking.time} · Placa {booking.plate}
                         </p>
+                        <p style={{ color: '#718096', fontSize: '0.78rem', margin: '0 0 4px' }}>
+                          {getWashModeLabel(booking.washMode)}
+                        </p>
                         {booking.isMembershipVisit && (
                           <span style={{ color: '#D4AF37', fontSize: '0.75rem', fontWeight: 800 }}>Lavado de membresia programado</span>
                         )}
@@ -634,6 +648,7 @@ export default function CustomerDashboard() {
                         <div>
                           <p style={{ color: '#D4AF37', fontWeight: 900, margin: 0 }}>{booking.service?.title}</p>
                           <p style={{ color: '#718096', fontSize: '0.85rem', margin: '4px 0 0' }}>Inicio: {formatDate(booking.date)} a las {booking.time}</p>
+                          <p style={{ color: '#718096', fontSize: '0.78rem', margin: '4px 0 0' }}>{getWashModeLabel(booking.washMode)}</p>
                         </div>
                         <span style={{ color: paymentColor(booking), fontWeight: 800, fontSize: '0.8rem' }}>
                           {booking.paymentStatus === 'paid' ? 'Activa' : paymentLabel(booking)}
@@ -724,6 +739,7 @@ export default function CustomerDashboard() {
                     <div>
                       <p style={{ margin: 0, color: '#fff', fontWeight: 800, fontSize: '0.88rem' }}>{event.title}</p>
                       <p style={{ margin: '3px 0 0', color: '#718096', fontSize: '0.78rem' }}>{event.time} · Placa {event.plate}</p>
+                      <p style={{ margin: '3px 0 0', color: '#718096', fontSize: '0.74rem' }}>{getWashModeLabel(event.washMode)}</p>
                     </div>
                   </div>
                 )) : (

@@ -30,6 +30,7 @@ const {
   parseBookingDate,
   parseServicePriceCents,
   isValidBookingTime,
+  getWashMode,
   normalizeEmail,
   sanitizePlate,
   sanitizeString,
@@ -181,6 +182,8 @@ const getPaymentMethod = (value) => (
   PAYMENT_METHODS.has(value) ? value : 'card'
 );
 
+const getValidatedWashMode = (value) => getWashMode(value);
+
 const validateBookingBasics = async ({ serviceId, date, time, plate }) => {
   const bookingDate = parseBookingDate(date);
   const cleanPlate = sanitizePlate(plate);
@@ -242,6 +245,10 @@ exports.createBooking = async (req, res) => {
 
     const { bookingDate, cleanPlate, service } = validation;
     const paymentMethod = getPaymentMethod(req.body.paymentMethod);
+    const washMode = getValidatedWashMode(req.body.washMode);
+    if (!washMode) {
+      return res.status(400).json({ message: 'Selecciona como se realizara el lavado.' });
+    }
     const financials = buildBookingFinancials(service, paymentMethod);
     const membership = await generateMembershipSchedule({
       service,
@@ -258,6 +265,7 @@ exports.createBooking = async (req, res) => {
       date: bookingDate,
       time,
       plate: cleanPlate,
+      washMode,
       status: requiresCheckout ? 'awaiting_payment' : 'confirmed',
       paymentStatus: 'unpaid',
       paymentMethod,
@@ -296,7 +304,8 @@ exports.createBooking = async (req, res) => {
       serviceId,
       date: booking.date,
       time,
-      paymentMethod
+      paymentMethod,
+      washMode
     });
 
     return res.status(201).json({
@@ -336,9 +345,14 @@ exports.createAdminBooking = async (req, res) => {
     const customerName = sanitizeString(req.body.customerName, 100);
     const customerPhone = sanitizeString(req.body.customerPhone, 30);
     const customerEmail = normalizeEmail(req.body.customerEmail);
+    const washMode = getValidatedWashMode(req.body.washMode);
 
     if (!customerName || !customerPhone) {
       return res.status(400).json({ message: 'Nombre y telefono del cliente son obligatorios' });
+    }
+
+    if (!washMode) {
+      return res.status(400).json({ message: 'Selecciona como se realizara el lavado.' });
     }
 
     const paymentMethod = getPaymentMethod(req.body.paymentMethod);
@@ -358,6 +372,7 @@ exports.createAdminBooking = async (req, res) => {
       date: bookingDate,
       time,
       plate: cleanPlate,
+      washMode,
       status: paymentStatus === 'paid' ? 'confirmed' : 'pending',
       paymentStatus,
       paymentMethod,
@@ -377,7 +392,8 @@ exports.createAdminBooking = async (req, res) => {
       bookingId: booking._id,
       serviceId,
       paymentMethod,
-      paymentStatus
+      paymentStatus,
+      washMode
     });
 
     return res.status(201).json({ success: true, booking });

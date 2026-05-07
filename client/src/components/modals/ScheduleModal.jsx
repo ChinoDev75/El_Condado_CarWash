@@ -26,6 +26,16 @@ const defaultTransferAccount = {
   instructions: "Despues de transferir, envia el comprobante por WhatsApp para confirmar tu reserva.",
 };
 
+const washModeOptions = [
+  { value: "at_home", label: "A domicilio", detail: "Uso su luz y agua" },
+  { value: "drop_off", label: "Llegar a dejar", detail: "El cliente lo deja en mi casa C094" },
+  { value: "pickup_and_return", label: "Ir a recoger", detail: "Yo recojo el carro, lo llevo a la casa C094 y lo devuelvo" },
+];
+
+const getWashModeLabel = (value) => (
+  washModeOptions.find((option) => option.value === value)?.label || "Sin definir"
+);
+
 export default function ScheduleModal({ open, onClose, serviceName, serviceId, servicePrice, onAuthOpen }) {
   const { user, token } = useAuth();
   const [step, setStep] = useState(1);
@@ -42,6 +52,7 @@ export default function ScheduleModal({ open, onClose, serviceName, serviceId, s
     time: "",
     plate: "",
     paymentMethod: "card",
+    washMode: "drop_off",
   });
 
   const normalizedPlate = normalizePlate(form.plate);
@@ -56,8 +67,9 @@ export default function ScheduleModal({ open, onClose, serviceName, serviceId, s
     Boolean(form.name.trim()) &&
     Boolean(form.date) &&
     Boolean(form.time) &&
+    Boolean(form.washMode) &&
     isValidPlate(normalizedPlate)
-  ), [form.date, form.name, form.time, normalizedPlate]);
+  ), [form.date, form.name, form.time, form.washMode, normalizedPlate]);
 
   function handleChange(e) {
     const { name, value } = e.target;
@@ -158,6 +170,7 @@ export default function ScheduleModal({ open, onClose, serviceName, serviceId, s
           time: form.time,
           plate: normalizedPlate,
           paymentMethod: form.paymentMethod,
+          washMode: form.washMode,
         }),
       });
 
@@ -235,6 +248,24 @@ export default function ScheduleModal({ open, onClose, serviceName, serviceId, s
               <p style={{ color: plateIssues.length === 0 ? "#25D366" : "#718096", fontSize: "0.75rem", margin: "-6px 0 0", lineHeight: 1.45 }}>
                 {form.plate && plateIssues.length === 0 ? "Placa valida." : plateRequirementsText}
               </p>
+              <div>
+                <label style={{ display: "block", color: "#9ca3af", fontSize: "0.8rem", marginBottom: "6px" }}>
+                  Modo de lavado
+                </label>
+                <select
+                  name="washMode"
+                  value={form.washMode}
+                  onChange={handleChange}
+                  style={inputStyle}
+                  required
+                >
+                  {washModeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label} - {option.detail}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div
                 style={{
                   display: "grid",
@@ -337,6 +368,7 @@ export default function ScheduleModal({ open, onClose, serviceName, serviceId, s
                   ["Servicio", serviceName],
                   ["Nombre", form.name],
                   ["Placa", normalizedPlate],
+                  ["Modo", getWashModeLabel(form.washMode)],
                   ["Fecha", form.date],
                   ["Hora", form.time],
                   ["Pago", form.paymentMethod === "card" ? "Tarjeta" : form.paymentMethod === "transfer" ? "Transferencia" : "Efectivo"],

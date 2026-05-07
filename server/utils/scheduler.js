@@ -4,7 +4,9 @@ const Service = require('../models/Service');
 const { expireUnpaidBookings } = require('./bookingExpiry');
 const {
   getBusinessDateKey,
-  getBusinessMinutes
+  getBusinessMinutes,
+  getDateKeyFromStoredDate,
+  parseDateKeyToUtcDate
 } = require('./dateTime');
 
 const ACTIVE_BOOKING_STATUSES = ['awaiting_payment', 'pending', 'confirmed'];
@@ -66,6 +68,45 @@ const normalizeWeeklySchedule = (weeklySchedule = DEFAULT_WEEKLY_SCHEDULE) => {
   return DEFAULT_WEEKLY_SCHEDULE.map((fallback) => byDay.get(fallback.day) || fallback);
 };
 
+const sanitizeBlockNote = (value) => {
+  if (typeof value !== 'string') return 'Descanso';
+
+  return value
+    .replace(/\0/g, '')
+    .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .trim()
+    .slice(0, 120) || 'Descanso';
+};
+
+const normalizeUnavailableBlocks = (unavailableBlocks = []) => {
+  if (!Array.isArray(unavailableBlocks)) return [];
+
+  return unavailableBlocks
+    .slice(0, 100)
+    .map((block) => {
+      const dateKey = typeof block.date === 'string'
+        ? block.date.slice(0, 10)
+        : getDateKeyFromStoredDate(block.date);
+      const date = parseDateKeyToUtcDate(dateKey);
+      const startMinutes = parseTimeToMinutes(block.start);
+      const endMinutes = parseTimeToMinutes(block.end);
+
+      if (!date || startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+        return null;
+      }
+
+      return {
+        ...(block._id ? { _id: block._id } : {}),
+        date,
+        start: block.start,
+        end: block.end,
+        note: sanitizeBlockNote(block.note)
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => `${toDateKey(a.date)} ${a.start}`.localeCompare(`${toDateKey(b.date)} ${b.start}`));
+};
+
 const getBusinessSettings = async () => {
   const settings = await BusinessSettings.findOneAndUpdate(
     { key: 'main' },
@@ -74,6 +115,7 @@ const getBusinessSettings = async () => {
   );
 
   settings.weeklySchedule = normalizeWeeklySchedule(settings.weeklySchedule);
+  settings.unavailableBlocks = normalizeUnavailableBlocks(settings.unavailableBlocks);
   return settings;
 };
 
@@ -109,11 +151,36 @@ const buildSlots = (daySchedule, durationMinutes, intervalMinutes) => {
   return slots;
 };
 
+const buildUnavailableBlockIntervals = (date, unavailableBlocks = []) => {
+  const dateKey = toDateKey(date);
+
+  return unavailableBlocks
+    .filter((block) => toDateKey(block.date) === dateKey)
+    .map((block) => {
+      const startMinutes = parseTimeToMinutes(block.start);
+      const endMinutes = parseTimeToMinutes(block.end);
+
+      if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+        return null;
+      }
+
+      return {
+        blockId: block._id,
+        title: block.note || 'Descanso',
+        startMinutes,
+        endMinutes,
+        type: 'unavailable_block'
+      };
+    })
+    .filter(Boolean);
+};
+
 const getBlockingIntervals = async (date, options = {}) => {
   await expireUnpaidBookings();
 
   const dateKey = toDateKey(date);
   const excludeBookingId = options.excludeBookingId ? String(options.excludeBookingId) : null;
+  const settings = options.settings || await getBusinessSettings();
   const activeBookings = await Booking.find({
     $or: [
       { status: { $in: ACTIVE_BOOKING_STATUSES }, date },
@@ -121,7 +188,7 @@ const getBlockingIntervals = async (date, options = {}) => {
     ]
   }).populate('service', 'title durationMinutes');
 
-  const intervals = [];
+  const intervals = buildUnavailableBlockIntervals(date, settings.unavailableBlocks);
 
   activeBookings.forEach((booking) => {
     if (excludeBookingId && String(booking._id) === excludeBookingId) {
@@ -183,10 +250,21 @@ const isSlotAvailable = async ({ date, time, durationMinutes, excludeBookingId =
 
   if (isPastSlotToday({ date, startMinutes })) return false;
 
-  const withinBusinessHours = await isSlotWithinBusinessHours({ date, time, durationMinutes });
+  const settings = await getBusinessSettings();
+  const daySchedule = settings.weeklySchedule.find((entry) => entry.day === date.getUTCDay());
+  const businessStart = parseTimeToMinutes(daySchedule?.start);
+  const businessEnd = parseTimeToMinutes(daySchedule?.end);
+
+  const withinBusinessHours = Boolean(
+    daySchedule?.enabled &&
+    businessStart !== null &&
+    businessEnd !== null &&
+    startMinutes >= businessStart &&
+    startMinutes + durationMinutes <= businessEnd
+  );
   if (!withinBusinessHours) return false;
 
-  const blockingIntervals = await getBlockingIntervals(date, { excludeBookingId });
+  const blockingIntervals = await getBlockingIntervals(date, { excludeBookingId, settings });
   return !blockingIntervals.some((interval) => intervalsOverlap(
     startMinutes,
     startMinutes + durationMinutes,
@@ -227,7 +305,7 @@ const getAvailabilityForService = async ({ serviceId, date, excludeBookingId = n
   const intervalMinutes = settings.slotIntervalMinutes || 30;
   const slots = buildSlots(daySchedule, durationMinutes, intervalMinutes);
 
-  const blockingIntervals = await getBlockingIntervals(date, { excludeBookingId });
+  const blockingIntervals = await getBlockingIntervals(date, { excludeBookingId, settings });
 
   const availability = slots.map((slot) => {
     const isPast = isPastSlotToday({ date, startMinutes: slot.startMinutes });
@@ -244,7 +322,7 @@ const getAvailabilityForService = async ({ serviceId, date, excludeBookingId = n
       time: slot.time,
       available: !isPast && !blockingInterval,
       durationMinutes,
-      blockedBy: blockingInterval ? blockingInterval.bookingId : null,
+      blockedBy: blockingInterval ? (blockingInterval.bookingId || blockingInterval.blockId) : null,
       blockedTitle: isPast ? 'Horario pasado' : blockingInterval ? blockingInterval.title : null
     };
   });
@@ -274,6 +352,7 @@ module.exports = {
   isSlotAvailable,
   isPastSlotToday,
   isValidTime,
+  normalizeUnavailableBlocks,
   normalizeWeeklySchedule,
   parseTimeToMinutes
 };
