@@ -1,0 +1,51 @@
+export const goldBtn = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "8px",
+  background: "linear-gradient(135deg, #fceabb 0%, #fccd4d 50%, #f8b500 51%, #fbdf93 100%)",
+  color: "#0a0d14",
+  border: "none",
+  borderRadius: "12px",
+  padding: "14px 24px",
+  fontWeight: 800,
+  fontSize: "0.9rem",
+  cursor: "pointer",
+  fontFamily: "inherit",
+  boxShadow: "0 4px 15px rgba(212, 175, 55, 0.2)",
+  textTransform: "uppercase",
+  letterSpacing: "0.05em"
+};
+
+export const waBtn = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "8px",
+  background: "rgba(37, 211, 102, 0.1)",
+  color: "#25D366",
+  border: "1px solid rgba(37, 211, 102, 0.3)",
+  borderRadius: "12px",
+  padding: "14px 24px",
+  fontWeight: 700,
+  fontSize: "0.9rem",
+  cursor: "pointer",
+  fontFamily: "inherit",
+  boxShadow: "0 4px 15px rgba(37, 211, 102, 0.1)",
+};
+
+export const ghostBtn = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "8px",
+  background: "rgba(255, 255, 255, 0.03)",
+  color: "#D4AF37",
+  border: "1px solid rgba(212, 175, 55, 0.3)",
+  borderRadius: "12px",
+  padding: "14px 24px",
+  fontWeight: 700,
+  fontSize: "0.9rem",
+  cursor: "pointer",
+  fontFamily: "inherit",
+};
