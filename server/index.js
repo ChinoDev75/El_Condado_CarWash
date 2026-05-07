@@ -6,6 +6,8 @@ const {
   validateEnv,
   securityHeaders,
   corsOptions,
+  getDatabaseStatus,
+  requireDatabaseConnection,
   notFound,
   errorHandler
 } = require('./middleware/security');
@@ -17,7 +19,10 @@ app.disable('x-powered-by');
 app.set('trust proxy', 1);
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.set('bufferCommands', false);
+mongoose.connect(process.env.MONGODB_URI, {
+  serverSelectionTimeoutMS: 10000
+})
   .then(() => console.log('MongoDB connected successfully'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
@@ -31,6 +36,24 @@ app.use(express.json({
   }
 }));
 
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'El Condado CarWash API',
+    database: getDatabaseStatus(mongoose.connection)
+  });
+});
+
+app.get('/api/health', (req, res) => {
+  const database = getDatabaseStatus(mongoose.connection);
+  res.status(database.readyState === 1 ? 200 : 503).json({
+    status: database.readyState === 1 ? 'ok' : 'degraded',
+    database
+  });
+});
+
+app.use('/api', requireDatabaseConnection(mongoose.connection));
+
 // Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/services', require('./routes/services'));
@@ -38,10 +61,6 @@ app.use('/api/bookings', require('./routes/bookings'));
 app.use('/api/loyalty', require('./routes/loyalty'));
 app.use('/api/payments', require('./routes/payments'));
 app.use('/api/settings', require('./routes/settings'));
-
-app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'El Condado CarWash API' });
-});
 
 app.use(notFound);
 app.use(errorHandler);

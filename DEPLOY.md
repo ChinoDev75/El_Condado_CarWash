@@ -23,6 +23,20 @@ BUSINESS_UTC_OFFSET=-06:00
 RECURRENTE_WEBHOOK_SECRET=un_valor_privado_para_webhooks
 ```
 
+En MongoDB Atlas revisa:
+
+- Database Access: el usuario del `MONGODB_URI` debe tener permiso de lectura/escritura.
+- Network Access: agrega `0.0.0.0/0` para permitir conexiones desde Render, o agrega las IPs salientes de tu servicio si usas una configuracion fija.
+- El `MONGODB_URI` en Render debe ser el URI de Atlas, no `mongodb://localhost:27017/carwash`.
+
+Puedes revisar el estado del backend en:
+
+```text
+https://tu-backend.onrender.com/api/health
+```
+
+Si MongoDB no conecta, respondera `503` con el estado de la base.
+
 Variables para pagos con tarjeta:
 
 ```env

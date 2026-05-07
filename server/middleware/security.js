@@ -29,6 +29,29 @@ exports.securityHeaders = (req, res, next) => {
   next();
 };
 
+const databaseStates = {
+  0: 'disconnected',
+  1: 'connected',
+  2: 'connecting',
+  3: 'disconnecting'
+};
+
+exports.getDatabaseStatus = (mongooseConnection) => ({
+  readyState: mongooseConnection.readyState,
+  state: databaseStates[mongooseConnection.readyState] || 'unknown'
+});
+
+exports.requireDatabaseConnection = (mongooseConnection) => (req, res, next) => {
+  if (mongooseConnection.readyState === 1) {
+    return next();
+  }
+
+  return res.status(503).json({
+    message: 'Base de datos no conectada. Revisa MONGODB_URI y permisos de red en MongoDB Atlas.',
+    database: exports.getDatabaseStatus(mongooseConnection)
+  });
+};
+
 exports.corsOptions = {
   origin(origin, callback) {
     if (!origin) {
