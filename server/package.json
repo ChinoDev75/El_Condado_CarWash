@@ -4,8 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build": "node -e \"console.log('Backend listo: no requiere build')\"",
     "start": "node index.js",
     "dev": "nodemon index.js"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

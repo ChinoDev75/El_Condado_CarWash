@@ -1,0 +1,49 @@
+services:
+  - type: web
+    name: el-condado-carwash-api
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CLIENT_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: BUSINESS_TIME_ZONE
+        value: America/Guatemala
+      - key: BUSINESS_UTC_OFFSET
+        value: "-06:00"
+      - key: RECURRENTE_PUBLIC_KEY
+        sync: false
+      - key: RECURRENTE_SECRET_KEY
+        sync: false
+      - key: RECURRENTE_WEBHOOK_SECRET
+        sync: false
+      - key: RECURRENTE_PASS_FEE
+        value: "true"
+
+  - type: web
+    name: el-condado-carwash-web
+    runtime: static
+    rootDir: client
+    plan: free
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: "/*"
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false
