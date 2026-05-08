@@ -6,19 +6,22 @@ const {
   isValidEmail,
   getPasswordIssues
 } = require('../utils/validation');
+const { ensureReferralCode } = require('../utils/referrals');
 const { auditLog } = require('../utils/auditLogger');
 
 exports.register = async (req, res) => {
   try {
     const name = sanitizeString(req.body.name, 80);
     const email = normalizeEmail(req.body.email);
+    const phone = sanitizeString(req.body.phone, 30);
+    const address = sanitizeString(req.body.address, 220);
     const { password } = req.body;
     const passwordIssues = getPasswordIssues(password, { name, email });
 
-    if (!name || !isValidEmail(email) || passwordIssues.length > 0) {
+    if (!name || !address || !isValidEmail(email) || passwordIssues.length > 0) {
       return res.status(400).json({
-        message: !name || !isValidEmail(email)
-          ? 'Nombre o correo invalidos.'
+        message: !name || !address || !isValidEmail(email)
+          ? 'Nombre, direccion o correo invalidos.'
           : `Contraseña insegura: ${passwordIssues[0]}`
       });
     }
@@ -32,10 +35,13 @@ exports.register = async (req, res) => {
     const user = await User.create({
       name,
       email,
+      phone,
+      address,
       password,
       role: 'client'
     });
 
+    await ensureReferralCode(user);
     auditLog('auth.register_success', { userId: user._id, email: user.email });
     return sendTokenResponse(user, 201, res);
   } catch (error) {
@@ -70,6 +76,7 @@ exports.login = async (req, res) => {
     }
 
     auditLog('auth.login_success', { userId: user._id, email: user.email });
+    await ensureReferralCode(user);
     return sendTokenResponse(user, 200, res);
   } catch (error) {
     console.error(error);
@@ -79,11 +86,12 @@ exports.login = async (req, res) => {
 
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('name email role loyalty_points createdAt');
+    const user = await User.findById(req.user.id).select('name email phone address referralCode role loyalty_points createdAt');
     if (!user) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
+    await ensureReferralCode(user);
     return res.status(200).json(user);
   } catch (error) {
     return res.status(500).json({ message: 'Error en el servidor' });
@@ -102,6 +110,9 @@ const sendTokenResponse = (user, statusCode, res) => {
       id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone,
+      address: user.address,
+      referralCode: user.referralCode,
       role: user.role,
       loyalty_points: user.loyalty_points
     }

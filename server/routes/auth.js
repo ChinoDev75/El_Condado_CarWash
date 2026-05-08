@@ -20,7 +20,7 @@ router.get('/me', protect, getMe);
 // @desc    Get all users (Admin only)
 router.get('/users', protect, authorize('admin'), async (req, res) => {
   try {
-    const users = await User.find().select('name email role loyalty_points createdAt').sort('-createdAt');
+    const users = await User.find().select('name email phone address referralCode role loyalty_points createdAt').sort('-createdAt');
     res.json(users);
   } catch (err) {
     res.status(500).json({ message: 'Error al obtener usuarios' });

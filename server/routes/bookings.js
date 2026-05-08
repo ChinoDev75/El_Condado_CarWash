@@ -4,6 +4,7 @@ const {
   cancelBooking,
   completeMembershipVisit,
   createAdminBooking,
+  createCustomMembership,
   getBookingMetrics,
   getBookings,
   createBooking,
@@ -18,6 +19,7 @@ router.use(protect); // Todas las rutas de reservas requieren estar logueado
 router.get('/', getBookings);
 router.get('/metrics', authorize('admin'), getBookingMetrics);
 router.post('/', createBooking);
+router.post('/custom-membership', createCustomMembership);
 router.post('/admin', authorize('admin'), createAdminBooking);
 router.put('/:id/reschedule', rescheduleBooking);
 router.put('/:id/cancel', cancelBooking);

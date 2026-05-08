@@ -5,7 +5,7 @@ const parsePositiveNumber = (value, fallback) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-const POINT_CENTS_VALUE = parsePositiveNumber(process.env.LOYALTY_POINT_CENTS_VALUE, 1000);
+const POINT_CENTS_VALUE = parsePositiveNumber(process.env.LOYALTY_POINT_CENTS_VALUE, 300);
 const REVIEW_BONUS_POINTS = parsePositiveNumber(process.env.LOYALTY_REVIEW_BONUS_POINTS, 10);
 
 const getPointsRateQuetzales = () => POINT_CENTS_VALUE / 100;

@@ -197,7 +197,7 @@ const getBlockingIntervals = async (date, options = {}) => {
 
     if (ACTIVE_BOOKING_STATUSES.includes(booking.status) && toDateKey(booking.date) === dateKey) {
       const bookingStart = parseTimeToMinutes(booking.time);
-      const bookingDuration = booking.service?.durationMinutes || 60;
+      const bookingDuration = booking.customMembership?.firstVisitDurationMinutes || booking.service?.durationMinutes || 60;
 
       if (bookingStart !== null) {
         intervals.push({
@@ -291,7 +291,7 @@ const findNextAvailableDate = async ({ preferredDate, time, durationMinutes, max
   return null;
 };
 
-const getAvailabilityForService = async ({ serviceId, date, excludeBookingId = null }) => {
+const getAvailabilityForService = async ({ serviceId, date, excludeBookingId = null, durationMinutesOverride = null }) => {
   await expireUnpaidBookings();
 
   const service = await Service.findById(serviceId).select('title durationMinutes');
@@ -301,7 +301,10 @@ const getAvailabilityForService = async ({ serviceId, date, excludeBookingId = n
 
   const settings = await getBusinessSettings();
   const daySchedule = settings.weeklySchedule.find((entry) => entry.day === date.getUTCDay());
-  const durationMinutes = service.durationMinutes || 60;
+  const overrideDuration = Number(durationMinutesOverride);
+  const durationMinutes = Number.isFinite(overrideDuration) && overrideDuration >= 15 && overrideDuration <= 480
+    ? overrideDuration
+    : service.durationMinutes || 60;
   const intervalMinutes = settings.slotIntervalMinutes || 30;
   const slots = buildSlots(daySchedule, durationMinutes, intervalMinutes);
 

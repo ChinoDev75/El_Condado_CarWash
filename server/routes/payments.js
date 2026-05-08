@@ -5,6 +5,7 @@ const Booking = require('../models/Booking');
 const { protect } = require('../middleware/auth');
 const { rateLimit } = require('../middleware/rateLimit');
 const { isValidObjectId } = require('../utils/validation');
+const { awardReferralReward } = require('../utils/referrals');
 const { auditLog } = require('../utils/auditLogger');
 
 const paymentLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 30, name: 'payments' });
@@ -38,6 +39,7 @@ const markBookingPaid = async (booking, eventId = null) => {
       booking.recurrenteEventId = eventId;
     }
 
+    await awardReferralReward(booking);
     await booking.save();
     return { confirmed: false, reason: 'expired' };
   }
@@ -53,6 +55,7 @@ const markBookingPaid = async (booking, eventId = null) => {
     booking.recurrenteEventId = eventId;
   }
 
+  await awardReferralReward(booking);
   await booking.save();
   return { confirmed: true };
 };
@@ -73,6 +76,11 @@ router.get('/verify/:bookingId', protect, paymentLimiter, async (req, res) => {
     }
 
     if (booking.paymentStatus === 'paid') {
+      const awarded = await awardReferralReward(booking);
+      if (awarded) {
+        await booking.save();
+      }
+
       if (booking.status === 'cancelled') {
         return res.json({
           status: 'paid_expired',

@@ -56,6 +56,7 @@ app.use('/api', requireDatabaseConnection(mongoose.connection));
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/clients', require('./routes/clients'));
 app.use('/api/services', require('./routes/services'));
 app.use('/api/bookings', require('./routes/bookings'));
 app.use('/api/loyalty', require('./routes/loyalty'));

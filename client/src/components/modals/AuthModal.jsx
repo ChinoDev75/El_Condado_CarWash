@@ -15,6 +15,8 @@ export default function AuthModal({ open, onClose }) {
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     name: "",
+    phone: "",
+    address: "",
     email: "",
     password: "",
     confirm: "",
@@ -43,6 +45,10 @@ export default function AuthModal({ open, onClose }) {
         setError("Agrega tu nombre completo.");
         return;
       }
+      if (!form.address.trim()) {
+        setError("Agrega tu direccion.");
+        return;
+      }
       if (passwordIssues.length > 0) {
         setError(`Contraseña insegura: ${passwordIssues[0]}`);
         return;
@@ -56,7 +62,7 @@ export default function AuthModal({ open, onClose }) {
     setLoading(true);
 
     const res = mode === "register"
-      ? await register(form.name.trim(), email, password)
+      ? await register(form.name.trim(), email, password, form.phone.trim(), form.address.trim())
       : await login(email, password);
 
     if (res.success) {
@@ -122,15 +128,35 @@ export default function AuthModal({ open, onClose }) {
         )}
 
         {mode === "register" && (
-          <InputField
-            label="Nombre completo"
-            name="name"
-            value={form.name}
-            onChange={handleChange}
-            placeholder="Tu nombre"
-            required
-            autoComplete="name"
-          />
+          <>
+            <InputField
+              label="Nombre completo"
+              name="name"
+              value={form.name}
+              onChange={handleChange}
+              placeholder="Tu nombre"
+              required
+              autoComplete="name"
+            />
+            <InputField
+              label="WhatsApp"
+              name="phone"
+              value={form.phone}
+              onChange={handleChange}
+              placeholder="Ej: 5555 5555"
+              autoComplete="tel"
+            />
+            <InputField
+              label="Direccion"
+              name="address"
+              value={form.address}
+              onChange={handleChange}
+              placeholder="Casa, colonia, zona o referencia"
+              required
+              autoComplete="street-address"
+              maxLength={220}
+            />
+          </>
         )}
         <InputField
           label="Correo electrónico"

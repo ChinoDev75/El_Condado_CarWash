@@ -61,11 +61,27 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (name, email, password) => {
+  const register = async (name, email, password, phone = "", address = "") => {
     try {
       const data = await apiFetch("/auth/register", {
         method: "POST",
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, phone, address }),
+      });
+
+      localStorage.setItem(TOKEN_KEY, data.token);
+      setToken(data.token);
+      setUser(data.user);
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
+  const completeInvite = async (inviteToken, payload) => {
+    try {
+      const data = await apiFetch(`/clients/invitations/${encodeURIComponent(inviteToken)}/complete`, {
+        method: "POST",
+        body: JSON.stringify(payload),
       });
 
       localStorage.setItem(TOKEN_KEY, data.token);
@@ -78,7 +94,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, completeInvite, logout }}>
       {children}
     </AuthContext.Provider>
   );

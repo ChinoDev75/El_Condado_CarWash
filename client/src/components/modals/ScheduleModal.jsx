@@ -17,6 +17,9 @@ const parsePriceCents = (price) => {
 const formatCurrency = (cents) => `Q ${(cents / 100).toFixed(2)}`;
 
 const calculateCardFee = (subtotalCents) => Math.round(subtotalCents * 0.045) + 200;
+const roundToWholeQuetzalCents = (cents) => Math.max(0, Math.round((Number(cents) || 0) / 100) * 100);
+const normalizeReferralCode = (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24);
+const DEFAULT_REFERRAL_DISCOUNT_PERCENT = 5;
 
 const defaultTransferAccount = {
   bankName: "Configura tu banco",
@@ -46,6 +49,10 @@ export default function ScheduleModal({ open, onClose, serviceName, serviceId, s
   const [serviceDuration, setServiceDuration] = useState(null);
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [transferAccount, setTransferAccount] = useState(defaultTransferAccount);
+  const [referralCode, setReferralCode] = useState("");
+  const [referralInfo, setReferralInfo] = useState(null);
+  const [referralLoading, setReferralLoading] = useState(false);
+  const [referralMessage, setReferralMessage] = useState("");
   const [form, setForm] = useState({
     name: user?.name || "",
     date: "",
@@ -60,8 +67,16 @@ export default function ScheduleModal({ open, onClose, serviceName, serviceId, s
   const today = todayDateKey();
   const availableSlots = slots.filter((slot) => slot.available);
   const subtotalCents = parsePriceCents(servicePrice);
-  const feeCents = form.paymentMethod === "card" ? calculateCardFee(subtotalCents) : 0;
-  const totalCents = subtotalCents + feeCents;
+  const referralDiscountCents = referralInfo
+    ? roundToWholeQuetzalCents(subtotalCents * ((referralInfo.discountRatePercent || DEFAULT_REFERRAL_DISCOUNT_PERCENT) / 100))
+    : 0;
+  const discountedSubtotalCents = referralInfo
+    ? roundToWholeQuetzalCents(subtotalCents - referralDiscountCents)
+    : subtotalCents;
+  const feeCents = form.paymentMethod === "card"
+    ? (referralInfo ? roundToWholeQuetzalCents(calculateCardFee(discountedSubtotalCents)) : calculateCardFee(discountedSubtotalCents))
+    : 0;
+  const totalCents = discountedSubtotalCents + feeCents;
 
   const isStepOneValid = useMemo(() => (
     Boolean(form.name.trim()) &&
@@ -79,6 +94,37 @@ export default function ScheduleModal({ open, onClose, serviceName, serviceId, s
       ...(name === "date" ? { time: "" } : {})
     }));
     setErrorMsg("");
+  }
+
+  function handleReferralChange(event) {
+    setReferralCode(normalizeReferralCode(event.target.value));
+    setReferralInfo(null);
+    setReferralMessage("");
+    setErrorMsg("");
+  }
+
+  async function applyReferralCode() {
+    const code = normalizeReferralCode(referralCode);
+    if (!code) {
+      setReferralMessage("Ingresa un codigo para aplicarlo.");
+      return;
+    }
+
+    setReferralLoading(true);
+    setReferralMessage("");
+    setErrorMsg("");
+
+    try {
+      const data = await apiFetch(`/loyalty/referrals/${encodeURIComponent(code)}`, { token });
+      setReferralInfo(data);
+      setReferralCode(data.code || code);
+      setReferralMessage(`Codigo aplicado: ${data.discountRatePercent || DEFAULT_REFERRAL_DISCOUNT_PERCENT}% de descuento.`);
+    } catch (err) {
+      setReferralInfo(null);
+      setReferralMessage(err.message || "No se pudo validar el codigo.");
+    } finally {
+      setReferralLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -146,6 +192,10 @@ export default function ScheduleModal({ open, onClose, serviceName, serviceId, s
     onClose();
     setStep(1);
     setErrorMsg("");
+    setReferralCode("");
+    setReferralInfo(null);
+    setReferralMessage("");
+    setReferralLoading(false);
     setTransferModalOpen(false);
   }
 
@@ -171,6 +221,7 @@ export default function ScheduleModal({ open, onClose, serviceName, serviceId, s
           plate: normalizedPlate,
           paymentMethod: form.paymentMethod,
           washMode: form.washMode,
+          referralCode: referralInfo?.code || "",
         }),
       });
 
@@ -414,11 +465,45 @@ export default function ScheduleModal({ open, onClose, serviceName, serviceId, s
                   <option value="transfer">Transferencia</option>
                   <option value="cash">Efectivo</option>
                 </select>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <label style={{ color: "#a0aec0", fontSize: "0.8rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                    Codigo de referido
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "8px" }}>
+                    <input
+                      value={referralCode}
+                      onChange={handleReferralChange}
+                      placeholder="EJ: ANA1B2C"
+                      style={inputStyle}
+                      maxLength={24}
+                      autoCapitalize="characters"
+                    />
+                    <button
+                      type="button"
+                      onClick={applyReferralCode}
+                      disabled={referralLoading || !referralCode}
+                      style={{ ...ghostBtn, padding: "10px 14px", opacity: referralLoading || !referralCode ? 0.55 : 1 }}
+                    >
+                      {referralLoading ? "..." : "Aplicar"}
+                    </button>
+                  </div>
+                  {referralMessage && (
+                    <p style={{ margin: 0, color: referralInfo ? "#25D366" : "#f87171", fontSize: "0.78rem" }}>
+                      {referralMessage}
+                    </p>
+                  )}
+                </div>
                 <div style={{ display: "grid", gap: "6px", fontSize: "0.85rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", color: "#a0aec0" }}>
                     <span>Subtotal</span>
                     <span>{formatCurrency(subtotalCents)}</span>
                   </div>
+                  {referralDiscountCents > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "#25D366", fontWeight: 900 }}>
+                      <span>Descuento referido ({referralInfo?.discountRatePercent || DEFAULT_REFERRAL_DISCOUNT_PERCENT}%)</span>
+                      <span>-{formatCurrency(referralDiscountCents)}</span>
+                    </div>
+                  )}
                   {form.paymentMethod === "card" && (
                     <div style={{ display: "flex", justifyContent: "space-between", color: "#D4AF37" }}>
                       <span>Comision tarjeta</span>

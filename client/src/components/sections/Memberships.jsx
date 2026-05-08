@@ -2,12 +2,14 @@ import { useState } from "react";
 import * as Icons from "../Icons";
 import { IconCheck, IconWA, IconCalendar } from "../Icons";
 import ScheduleModal from "../modals/ScheduleModal";
+import CustomMembershipModal from "../modals/CustomMembershipModal";
 import { waBtn, goldBtn } from "../../styles/buttonStyles";
 import { whatsappMsg } from "../../constants/whatsapp";
 import { useServices } from "../../hooks/useServices";
 
 export default function Memberships({ sectionTitle, onAuthOpen }) {
   const { services, loading, error } = useServices("membresia");
+  const [customOpen, setCustomOpen] = useState(false);
 
   return (
     <section
@@ -27,6 +29,8 @@ export default function Memberships({ sectionTitle, onAuthOpen }) {
         {loading && <p style={{ textAlign: "center", color: "#a0aec0" }}>Cargando membresías...</p>}
         {error && <p style={{ textAlign: "center", color: "#f56565" }}>Error al cargar membresías.</p>}
 
+        <CustomMembershipModal open={customOpen} onClose={() => setCustomOpen(false)} onAuthOpen={onAuthOpen} />
+
         {!loading && !error && (
           <div
             className="service-card-actions"
@@ -39,6 +43,47 @@ export default function Memberships({ sectionTitle, onAuthOpen }) {
             {services.map((membership) => (
               <MembershipCard key={membership._id} {...membership} serviceId={membership._id} onAuthOpen={onAuthOpen} />
             ))}
+            <div className="card-hover">
+              <div
+                className="glass-panel"
+                style={{
+                  border: "1px solid rgba(37,211,102,0.2)",
+                  borderRadius: "28px",
+                  padding: "2rem",
+                  minHeight: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "1.25rem",
+                  background: "linear-gradient(135deg, rgba(37,211,102,0.06), rgba(255,255,255,0.02))"
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                  <div style={{ color: "#25D366", background: "rgba(37,211,102,0.1)", borderRadius: "16px", padding: "12px" }}>
+                    <IconCalendar />
+                  </div>
+                  <div>
+                    <h3 style={{ color: "#fff", fontFamily: "'Cormorant Garamond',serif", fontSize: "1.35rem", margin: 0 }}>
+                      Crear tu propia membresia
+                    </h3>
+                    <p style={{ color: "#25D366", fontWeight: 900, margin: "2px 0 0" }}>Plan a tu medida</p>
+                  </div>
+                </div>
+                <p style={{ color: "#a0aec0", fontSize: "0.9rem", lineHeight: 1.6, margin: 0 }}>
+                  Elige cuantos lavados, si es individual, duo, trio o 4+ carros, agrega placas, agenda todas las fechas y paga el plan completo.
+                </p>
+                <div style={{ display: "grid", gap: "10px", marginBottom: "auto" }}>
+                  {["Agenda completa desde el primer dia", "Placas separadas por cada carro", "Visible en tu panel y en el admin"].map((item) => (
+                    <p key={item} style={{ color: "#a0aec0", fontSize: "0.88rem", display: "flex", gap: "10px", alignItems: "center", margin: 0 }}>
+                      <span style={{ color: "#25D366" }}><IconCheck /></span>
+                      {item}
+                    </p>
+                  ))}
+                </div>
+                <button type="button" onClick={() => setCustomOpen(true)} style={{ ...goldBtn, width: "100%", minHeight: "48px" }}>
+                  <IconCalendar /> Crear membresia
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -72,6 +72,7 @@ const emptyManualBooking = {
   customerName: '',
   customerPhone: '',
   customerEmail: '',
+  customerAddress: '',
   serviceId: '',
   date: '',
   time: '',
@@ -80,6 +81,12 @@ const emptyManualBooking = {
   paymentStatus: 'unpaid',
   washMode: 'drop_off',
   internalNotes: ''
+};
+
+const emptyClientInvite = {
+  name: '',
+  phone: '',
+  address: ''
 };
 
 const emptyUnavailableBlock = () => ({
@@ -97,7 +104,7 @@ const parsePriceCents = (price) => {
 const calculateCardFee = (subtotalCents) => Math.round(subtotalCents * 0.045) + 200;
 const calculateBookingPoints = (booking) => {
   const baseCents = booking.subtotalCents || booking.totalCents || parsePriceCents(booking.service?.price);
-  return baseCents > 0 ? Math.max(1, Math.floor(baseCents / 1000)) : 0;
+  return baseCents > 0 ? Math.max(1, Math.floor(baseCents / 300)) : 0;
 };
 
 const washModeOptions = [
@@ -159,14 +166,14 @@ const buildCalendarEvents = (bookings) => {
       serviceId,
       dateKey: formatDateKey(booking.date),
       time: booking.time,
-      title: booking.service?.title || 'Servicio',
+      title: getBookingTitle(booking),
       customer: booking.user?.name || booking.customerName || 'Cliente',
-      plate: booking.plate,
+      plate: getVehicleLabel(booking),
       washMode: booking.washMode,
       status: booking.status,
       paymentStatus: booking.paymentStatus,
       paymentMethod: booking.paymentMethod,
-      type: booking.service?.category === 'membresia' ? 'membresia' : 'reserva'
+      type: isMembershipBooking(booking) ? 'membresia' : 'reserva'
     });
 
     (booking.status === 'cancelled' ? [] : (booking.membershipSchedule || []))
@@ -181,7 +188,7 @@ const buildCalendarEvents = (bookings) => {
           title: visit.title,
           customer: booking.user?.name || booking.customerName || 'Cliente',
           visitId: visit._id,
-          plate: booking.plate,
+          plate: getVehicleLabel(booking),
           washMode: booking.washMode,
           status: visit.status,
           paymentStatus: booking.paymentStatus,
@@ -216,6 +223,7 @@ const buildBookingRows = (bookings) => {
       contact,
       washMode: booking.washMode,
       dateKey: formatDateKey(booking.date),
+      plate: getVehicleLabel(booking),
       type: getBookingType({ ...booking, service }),
       isMembershipVisit: false
     });
@@ -241,6 +249,7 @@ const buildBookingRows = (bookings) => {
           date: visit.date,
           dateKey: formatDateKey(visit.date),
           time: visit.time,
+          plate: getVehicleLabel(booking),
           status: visit.status,
           paymentStatus: booking.paymentStatus,
           paymentMethod: booking.paymentMethod,
@@ -280,7 +289,14 @@ const emptyFilters = {
 };
 
 const isActiveBooking = (booking) => ['pending', 'confirmed'].includes(booking.status);
-const getBookingType = (booking) => (booking.service?.category === 'membresia' ? 'membresia' : 'reserva');
+const isMembershipBooking = (booking) => (booking.membershipPlan && booking.membershipPlan !== 'none') || booking.service?.category === 'membresia';
+const getBookingType = (booking) => (isMembershipBooking(booking) ? 'membresia' : 'reserva');
+const getBookingTitle = (booking) => booking.customMembership?.planName || booking.service?.title || 'Servicio';
+const getVehicleLabel = (booking) => (
+  Array.isArray(booking.vehiclePlates) && booking.vehiclePlates.length > 0
+    ? booking.vehiclePlates.join(', ')
+    : booking.plate
+);
 
 const matchesFilters = (booking, filters) => (
   (filters.serviceId === 'all' || (booking.service?._id || booking.service) === filters.serviceId) &&
@@ -299,13 +315,15 @@ const matchesEventFilters = (event, filters) => (
 export default function AdminConsole() {
   const { token, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('bookings');
-  const [data, setData] = useState({ bookings: [], services: [], users: [], settings: defaultSettings, metrics: defaultMetrics });
+  const [data, setData] = useState({ bookings: [], services: [], users: [], clientInvites: [], settings: defaultSettings, metrics: defaultMetrics });
   const [loading, setLoading] = useState(true);
   const [alertCard, setAlertCard] = useState({ open: false });
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const [manualModalOpen, setManualModalOpen] = useState(false);
   const [clientModalOpen, setClientModalOpen] = useState(false);
+  const [inviteClientModalOpen, setInviteClientModalOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState('');
+  const [clientInviteForm, setClientInviteForm] = useState(emptyClientInvite);
   const [manualForm, setManualForm] = useState(emptyManualBooking);
   const [manualSlots, setManualSlots] = useState([]);
   const [manualSlotsLoading, setManualSlotsLoading] = useState(false);
@@ -343,10 +361,11 @@ export default function AdminConsole() {
     try {
       setLoading(true);
 
-      const [bookings, services, users, settings, metrics] = await Promise.all([
+      const [bookings, services, users, clientInvites, settings, metrics] = await Promise.all([
         apiFetch('/bookings', { token }),
         apiFetch('/services'),
         apiFetch('/auth/users', { token }),
+        apiFetch('/clients', { token }),
         apiFetch('/settings/schedule'),
         apiFetch('/bookings/metrics', { token })
       ]);
@@ -355,6 +374,7 @@ export default function AdminConsole() {
         bookings: Array.isArray(bookings) ? bookings : [], 
         services: Array.isArray(services) ? services : [], 
         users: Array.isArray(users) ? users : [],
+        clientInvites: Array.isArray(clientInvites) ? clientInvites : [],
         settings: normalizeClientSettings(settings),
         metrics: metrics || defaultMetrics
       });
@@ -450,6 +470,55 @@ export default function AdminConsole() {
   const openClientProfile = (client) => {
     setSelectedClientId(client._id);
     setClientModalOpen(true);
+  };
+
+  const openInviteClient = () => {
+    setClientInviteForm(emptyClientInvite);
+    setInviteClientModalOpen(true);
+  };
+
+  const handleClientInviteChange = (event) => {
+    const { name, value } = event.target;
+    setClientInviteForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const openWhatsappInvite = (url) => {
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const saveClientInvite = async (event) => {
+    event.preventDefault();
+
+    try {
+      const invite = await apiFetch('/clients', {
+        method: 'POST',
+        token,
+        body: JSON.stringify(clientInviteForm)
+      });
+
+      setInviteClientModalOpen(false);
+      fetchAllData();
+      openWhatsappInvite(invite.whatsappUrl || invite.lastWhatsappUrl);
+      showAlert({ type: 'success', title: 'Cliente creado', message: 'Se genero el mensaje de WhatsApp para que complete su cuenta.' });
+    } catch (err) {
+      showAlert({ type: 'error', title: 'No se pudo crear el cliente', message: err.message || 'Revisa nombre, telefono y direccion.' });
+    }
+  };
+
+  const resendClientInvite = async (invite) => {
+    try {
+      const updatedInvite = await apiFetch(`/clients/${invite._id}/resend`, {
+        method: 'POST',
+        token
+      });
+
+      fetchAllData();
+      openWhatsappInvite(updatedInvite.whatsappUrl || updatedInvite.lastWhatsappUrl);
+      showAlert({ type: 'success', title: 'Invitacion lista', message: 'Se abrio el mensaje actualizado para WhatsApp.' });
+    } catch (err) {
+      showAlert({ type: 'error', title: 'No se pudo reenviar', message: err.message || 'Intenta de nuevo.' });
+    }
   };
 
   const openRescheduleBooking = (booking) => {
@@ -1022,6 +1091,7 @@ export default function AdminConsole() {
             <InputField label="Cliente" name="customerName" value={manualForm.customerName} onChange={handleManualChange} placeholder="Nombre del cliente" required />
             <InputField label="Telefono" name="customerPhone" value={manualForm.customerPhone} onChange={handleManualChange} placeholder="WhatsApp" required />
           </div>
+          <InputField label="Direccion" name="customerAddress" value={manualForm.customerAddress} onChange={handleManualChange} placeholder="Casa, colonia, zona o referencia" />
           <InputField label="Correo opcional" name="customerEmail" type="email" value={manualForm.customerEmail} onChange={handleManualChange} placeholder="cliente@correo.com" />
           <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
@@ -1145,6 +1215,27 @@ export default function AdminConsole() {
         </form>
       </Modal>
       <Modal
+        open={inviteClientModalOpen}
+        onClose={() => setInviteClientModalOpen(false)}
+        title="Crear cliente"
+      >
+        <form onSubmit={saveClientInvite} style={{ display: 'grid', gap: '1rem' }}>
+          <div style={{ background: 'rgba(212,175,55,0.07)', border: '1px solid rgba(212,175,55,0.16)', borderRadius: '14px', padding: '1rem' }}>
+            <p style={{ margin: 0, color: '#D4AF37', fontWeight: 900 }}>Invitacion por WhatsApp</p>
+            <p style={{ margin: '4px 0 0', color: '#a0aec0', fontSize: '0.86rem', lineHeight: 1.5 }}>
+              Guardas nombre, telefono y direccion; luego se abre el mensaje para que el cliente cree su cuenta con correo y contrasena.
+            </p>
+          </div>
+          <InputField label="Nombre del cliente" name="name" value={clientInviteForm.name} onChange={handleClientInviteChange} placeholder="Nombre completo" required />
+          <InputField label="WhatsApp" name="phone" value={clientInviteForm.phone} onChange={handleClientInviteChange} placeholder="Ej: 5555 5555" required />
+          <InputField label="Direccion" name="address" value={clientInviteForm.address} onChange={handleClientInviteChange} placeholder="Casa, colonia, zona o referencia" required maxLength={220} />
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+            <button type="button" onClick={() => setInviteClientModalOpen(false)} style={ghostBtn}>Cancelar</button>
+            <button type="submit" style={goldBtn}>Crear y enviar</button>
+          </div>
+        </form>
+      </Modal>
+      <Modal
         open={clientModalOpen}
         onClose={() => setClientModalOpen(false)}
         title={selectedClient ? `Cliente: ${selectedClient.name}` : 'Cliente'}
@@ -1155,6 +1246,8 @@ export default function AdminConsole() {
               <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', padding: '1rem' }}>
                 <p style={{ margin: 0, color: '#718096', fontSize: '0.75rem', textTransform: 'uppercase' }}>Contacto</p>
                 <p style={{ margin: '6px 0 0', color: '#fff', fontWeight: 800 }}>{selectedClient.email}</p>
+                <p style={{ margin: '4px 0 0', color: '#a0aec0', fontSize: '0.82rem' }}>{selectedClient.phone || 'Sin telefono'}</p>
+                <p style={{ margin: '4px 0 0', color: '#718096', fontSize: '0.78rem' }}>{selectedClient.address || 'Sin direccion'}</p>
               </div>
               <div style={{ background: 'rgba(212,175,55,0.06)', border: '1px solid rgba(212,175,55,0.14)', borderRadius: '14px', padding: '1rem' }}>
                 <p style={{ margin: 0, color: '#718096', fontSize: '0.75rem', textTransform: 'uppercase' }}>Puntos</p>
@@ -1168,10 +1261,15 @@ export default function AdminConsole() {
                 {selectedClientMemberships.map((booking) => (
                   <div key={`client-membership-${booking._id}`} style={{ background: 'rgba(212,175,55,0.05)', border: '1px solid rgba(212,175,55,0.14)', borderRadius: '14px', padding: '1rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                      <strong style={{ color: '#D4AF37' }}>{booking.service?.title || 'Membresia'}</strong>
-                      <span style={{ color: '#a0aec0', fontSize: '0.82rem' }}>Placa {booking.plate}</span>
+                      <strong style={{ color: '#D4AF37' }}>{getBookingTitle(booking)}</strong>
+                      <span style={{ color: '#a0aec0', fontSize: '0.82rem' }}>Placas {getVehicleLabel(booking)}</span>
                     </div>
                     <p style={{ margin: '8px 0 0', color: '#718096', fontSize: '0.8rem' }}>{getWashModeLabel(booking.washMode)}</p>
+                    {(booking.customMembership?.serviceBreakdown || []).length > 0 && (
+                      <p style={{ margin: '6px 0 0', color: '#25D366', fontSize: '0.78rem' }}>
+                        {booking.customMembership.serviceBreakdown.map((item) => `${item.title} (${item.carWashes})`).join(' · ')}
+                      </p>
+                    )}
                     <div style={{ display: 'grid', gap: '8px', marginTop: '10px' }}>
                       {(booking.membershipSchedule || []).filter((visit) => visit.status === 'scheduled').map((visit) => (
                         <div key={visit._id || `${booking._id}-${visit.date}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', color: '#a0aec0', fontSize: '0.84rem' }}>
@@ -1194,7 +1292,7 @@ export default function AdminConsole() {
                 {[...selectedClientRows].reverse().map((row) => (
                   <div key={`client-row-${row._id}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '12px', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px' }}>
                     <div>
-                      <p style={{ margin: 0, color: row.isMembershipVisit ? '#D4AF37' : '#fff', fontWeight: 800, fontSize: '0.88rem' }}>{row.service?.title || 'Servicio'}</p>
+                      <p style={{ margin: 0, color: row.isMembershipVisit ? '#D4AF37' : '#fff', fontWeight: 800, fontSize: '0.88rem' }}>{row.isMembershipVisit ? row.service?.title : getBookingTitle(row)}</p>
                       <p style={{ margin: '3px 0 0', color: '#718096', fontSize: '0.78rem' }}>{formatDate(row.date)} · {row.time} · {row.plate}</p>
                       <p style={{ margin: '3px 0 0', color: '#718096', fontSize: '0.74rem' }}>{getWashModeLabel(row.washMode)}</p>
                     </div>
@@ -1287,7 +1385,7 @@ export default function AdminConsole() {
               <div className="admin-upcoming-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
                 {upcomingBookingRows.map((row) => (
                   <div key={`next-${row._id}`} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', padding: '12px' }}>
-                    <p style={{ margin: 0, color: row.isMembershipVisit ? '#D4AF37' : '#fff', fontWeight: 900, fontSize: '0.86rem' }}>{row.service?.title || 'Servicio'}</p>
+                    <p style={{ margin: 0, color: row.isMembershipVisit ? '#D4AF37' : '#fff', fontWeight: 900, fontSize: '0.86rem' }}>{row.isMembershipVisit ? row.service?.title : getBookingTitle(row)}</p>
                     <p style={{ margin: '5px 0 0', color: '#a0aec0', fontSize: '0.8rem' }}>{formatDate(row.date)} · {row.time}</p>
                     <p style={{ margin: '4px 0 0', color: '#718096', fontSize: '0.78rem' }}>{row.user?.name || row.customerName || 'Cliente manual'} · {row.plate}</p>
                     <p style={{ margin: '4px 0 0', color: '#718096', fontSize: '0.74rem' }}>{getWashModeLabel(row.washMode)}</p>
@@ -1511,7 +1609,7 @@ export default function AdminConsole() {
                         <div style={{ fontSize: '0.75rem', color: '#4a5568' }}>{b.user?.email || b.customerPhone || b.customerEmail || '---'}</div>
                       </td>
                       <td style={{ padding: '1.5rem 1rem' }}>
-                        <div style={{ color: '#D4AF37', fontWeight: 600 }}>{b.service?.title || 'Servicio Eliminado'}</div>
+                        <div style={{ color: '#D4AF37', fontWeight: 600 }}>{b.isMembershipVisit ? b.service?.title : getBookingTitle(b)}</div>
                         <div style={{ fontSize: '0.72rem', color: b.pointsAwarded ? '#25D366' : '#a0aec0' }}>
                           {b.isMembershipVisit
                             ? 'Lavado incluido en membresia'
@@ -1523,9 +1621,19 @@ export default function AdminConsole() {
                         </div>
                         <div style={{ fontSize: '0.75rem', color: '#718096' }}>{formatCurrency(b.totalCents || parsePriceCents(b.service?.price))} · {paymentMethodLabel(b.paymentMethod)}</div>
                         <div style={{ fontSize: '0.74rem', color: '#718096' }}>{getWashModeLabel(b.washMode)}</div>
+                        {b.customMembership?.washCount > 0 && !b.isMembershipVisit && (
+                          <div style={{ fontSize: '0.74rem', color: '#25D366' }}>
+                            {b.customMembership.washCount} lavados - {b.customMembership.carCount} carro(s)
+                          </div>
+                        )}
+                        {(b.customMembership?.serviceBreakdown || []).length > 0 && !b.isMembershipVisit && (
+                          <div style={{ fontSize: '0.72rem', color: '#718096' }}>
+                            {b.customMembership.serviceBreakdown.map((item) => `${item.title} (${item.carWashes})`).join(' · ')}
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '1.5rem 1rem' }}>
-                        <span style={{ background: '#1a202c', padding: '4px 10px', borderRadius: '6px', fontFamily: 'monospace', fontWeight: 700 }}>{b.plate}</span>
+                        <span style={{ background: '#1a202c', padding: '4px 10px', borderRadius: '6px', fontFamily: 'monospace', fontWeight: 700 }}>{getVehicleLabel(b)}</span>
                       </td>
                       <td style={{ padding: '1.5rem 1rem' }}>
                         <div style={{ fontWeight: 600 }}>{formatDisplayDate(b.date)}</div>
@@ -1811,13 +1919,20 @@ export default function AdminConsole() {
 
         {activeTab === 'users' && (
           <div>
-            <h2 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '2rem', fontFamily: "'Cormorant Garamond', serif" }}>Listado de Clientes</h2>
+            <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+              <div>
+                <h2 style={{ fontSize: '2rem', fontWeight: 700, margin: 0, fontFamily: "'Cormorant Garamond', serif" }}>Listado de Clientes</h2>
+                <p style={{ color: '#718096', marginTop: '0.5rem' }}>Clientes con cuenta y enlaces pendientes para crear acceso.</p>
+              </div>
+              <button type="button" onClick={openInviteClient} style={{ ...goldBtn, padding: '12px 18px' }}>+ Crear cliente</button>
+            </div>
             <div className="glass-panel" style={{ borderRadius: '24px', overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
                 <thead>
                   <tr style={{ background: 'rgba(255,255,255,0.02)', color: '#718096', fontSize: '0.8rem', textTransform: 'uppercase' }}>
                     <th style={{ padding: '1.5rem 1rem' }}>Nombre</th>
-                    <th style={{ padding: '1.5rem 1rem' }}>Email</th>
+                    <th style={{ padding: '1.5rem 1rem' }}>Contacto</th>
+                    <th style={{ padding: '1.5rem 1rem' }}>Direccion</th>
                     <th style={{ padding: '1.5rem 1rem' }}>Puntos Fidelidad</th>
                     <th style={{ padding: '1.5rem 1rem' }}>Rol</th>
                     <th style={{ padding: '1.5rem 1rem' }}>Registro</th>
@@ -1828,7 +1943,11 @@ export default function AdminConsole() {
                   {data.users.map(u => (
                     <tr key={u._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '0.9rem' }}>
                       <td style={{ padding: '1.5rem 1rem', fontWeight: 700 }}>{u.name}</td>
-                      <td style={{ padding: '1.5rem 1rem', color: '#a0aec0' }}>{u.email}</td>
+                      <td style={{ padding: '1.5rem 1rem', color: '#a0aec0' }}>
+                        <div>{u.email}</div>
+                        <div style={{ color: '#718096', fontSize: '0.8rem' }}>{u.phone || 'Sin telefono'}</div>
+                      </td>
+                      <td style={{ padding: '1.5rem 1rem', color: '#718096', maxWidth: '220px' }}>{u.address || 'Sin direccion'}</td>
                       <td style={{ padding: '1.5rem 1rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#D4AF37', fontWeight: 800 }}>
                           <IconStar /> {u.loyalty_points}
@@ -1849,7 +1968,55 @@ export default function AdminConsole() {
                   ))}
                   {data.users.length === 0 && (
                     <tr>
-                      <td colSpan="6" style={{ padding: '3rem', textAlign: 'center', color: '#4a5568' }}>No hay clientes registrados.</td>
+                      <td colSpan="7" style={{ padding: '3rem', textAlign: 'center', color: '#4a5568' }}>No hay clientes registrados.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="glass-panel" style={{ borderRadius: '24px', overflowX: 'auto', marginTop: '2rem' }}>
+              <div style={{ padding: '1.5rem 1.5rem 0' }}>
+                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.15rem' }}>Invitaciones por WhatsApp</h3>
+                <p style={{ color: '#718096', margin: '4px 0 1rem', fontSize: '0.9rem' }}>Clientes creados desde admin que aun pueden completar su cuenta.</p>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '760px' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(255,255,255,0.02)', color: '#718096', fontSize: '0.8rem', textTransform: 'uppercase' }}>
+                    <th style={{ padding: '1.25rem 1rem' }}>Cliente</th>
+                    <th style={{ padding: '1.25rem 1rem' }}>Telefono</th>
+                    <th style={{ padding: '1.25rem 1rem' }}>Direccion</th>
+                    <th style={{ padding: '1.25rem 1rem' }}>Estado</th>
+                    <th style={{ padding: '1.25rem 1rem' }}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.clientInvites.map((invite) => (
+                    <tr key={invite._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '0.9rem' }}>
+                      <td style={{ padding: '1.25rem 1rem', fontWeight: 800, color: '#fff' }}>{invite.name}</td>
+                      <td style={{ padding: '1.25rem 1rem', color: '#a0aec0' }}>{invite.phone}</td>
+                      <td style={{ padding: '1.25rem 1rem', color: '#718096', maxWidth: '240px' }}>{invite.address}</td>
+                      <td style={{ padding: '1.25rem 1rem' }}>
+                        <span style={{ fontSize: '0.7rem', padding: '4px 10px', borderRadius: '999px', background: invite.status === 'claimed' ? 'rgba(37,211,102,0.12)' : 'rgba(212,175,55,0.12)', color: invite.status === 'claimed' ? '#25D366' : '#D4AF37', fontWeight: 900, textTransform: 'uppercase' }}>
+                          {invite.status === 'claimed' ? 'Cuenta creada' : 'Pendiente'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '1.25rem 1rem' }}>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <button type="button" onClick={() => openWhatsappInvite(invite.lastWhatsappUrl)} style={{ ...ghostBtn, padding: '7px 12px', fontSize: '0.78rem' }}>
+                            WhatsApp
+                          </button>
+                          {invite.status !== 'claimed' && (
+                            <button type="button" onClick={() => resendClientInvite(invite)} style={{ ...ghostBtn, padding: '7px 12px', fontSize: '0.78rem' }}>
+                              Reenviar link
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {data.clientInvites.length === 0 && (
+                    <tr>
+                      <td colSpan="5" style={{ padding: '2.5rem', textAlign: 'center', color: '#4a5568' }}>No hay invitaciones creadas.</td>
                     </tr>
                   )}
                 </tbody>

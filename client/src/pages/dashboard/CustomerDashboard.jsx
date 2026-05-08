@@ -30,6 +30,19 @@ const washModeLabels = {
 
 const getWashModeLabel = (value) => washModeLabels[value] || "Sin definir";
 
+const isMembershipBooking = (booking) => (
+  (booking.membershipPlan && booking.membershipPlan !== 'none') ||
+  booking.service?.category === 'membresia'
+);
+
+const getBookingTitle = (booking) => booking.customMembership?.planName || booking.service?.title || 'Servicio';
+
+const getVehicleLabel = (booking) => (
+  Array.isArray(booking.vehiclePlates) && booking.vehiclePlates.length > 0
+    ? booking.vehiclePlates.join(', ')
+    : booking.plate
+);
+
 const buildCustomerEvents = (bookings) => {
   const events = [];
 
@@ -41,13 +54,13 @@ const buildCustomerEvents = (bookings) => {
       booking,
       date: booking.date,
       time: booking.time,
-      title: booking.service?.title || 'Servicio',
-      plate: booking.plate,
+      title: getBookingTitle(booking),
+      plate: getVehicleLabel(booking),
       washMode: booking.washMode,
       status: booking.status,
       paymentStatus: booking.paymentStatus,
       paymentMethod: booking.paymentMethod,
-      type: booking.service?.category === 'membresia' ? 'membresia' : 'reserva',
+      type: isMembershipBooking(booking) ? 'membresia' : 'reserva',
       isMembershipVisit: false
     });
 
@@ -63,7 +76,7 @@ const buildCustomerEvents = (bookings) => {
           date: visit.date,
           time: visit.time,
           title: visit.title || booking.service?.title || 'Lavado de membresia',
-          plate: booking.plate,
+          plate: getVehicleLabel(booking),
           washMode: booking.washMode,
           status: visit.status,
           paymentStatus: booking.paymentStatus,
@@ -163,7 +176,12 @@ const parseBookingSubtotalCents = (booking) => (
   booking.subtotalCents || booking.totalCents || 0
 );
 
-const calculateBookingPoints = (booking, pointsRateQuetzales = 10) => {
+const formatQuetzalesRate = (value) => {
+  const amount = Number(value) || 0;
+  return Number.isInteger(amount) ? amount : amount.toFixed(2);
+};
+
+const calculateBookingPoints = (booking, pointsRateQuetzales = 3) => {
   const rateCents = Math.max(1, Math.round(pointsRateQuetzales * 100));
   const baseCents = parseBookingSubtotalCents(booking);
   if (!baseCents) return 0;
@@ -174,7 +192,13 @@ export default function CustomerDashboard() {
   const { user, token, logout } = useAuth();
   const [bookings, setBookings] = useState([]);
   const [points, setPoints] = useState(0);
-  const [loyaltyInfo, setLoyaltyInfo] = useState({ pointsRateQuetzales: 10, reviewBonusPoints: 10 });
+  const [loyaltyInfo, setLoyaltyInfo] = useState({
+    pointsRateQuetzales: 3,
+    reviewBonusPoints: 10,
+    referralDiscountPercent: 5,
+    referralRewardPoints: 20,
+    referralCode: ''
+  });
   const [loading, setLoading] = useState(true);
   const [alertCard, setAlertCard] = useState({ open: false });
   const [rescheduleModalOpen, setRescheduleModalOpen] = useState(false);
@@ -222,22 +246,40 @@ export default function CustomerDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [bookingsData, pointsData] = await Promise.all([
+      const [bookingsResult, pointsResult] = await Promise.allSettled([
         apiFetch('/bookings', { token }),
         apiFetch('/loyalty/me', { token })
       ]);
-      setBookings(Array.isArray(bookingsData) ? bookingsData : []);
-      setPoints(pointsData.points || 0);
-      setLoyaltyInfo({
-        pointsRateQuetzales: pointsData.pointsRateQuetzales || 10,
-        reviewBonusPoints: pointsData.reviewBonusPoints || 10
-      });
+
+      if (bookingsResult.status === 'fulfilled') {
+        setBookings(Array.isArray(bookingsResult.value) ? bookingsResult.value : []);
+      } else {
+        console.error(bookingsResult.reason);
+      }
+
+      if (pointsResult.status === 'fulfilled') {
+        const pointsData = pointsResult.value;
+        setPoints(pointsData.points || 0);
+        setLoyaltyInfo({
+          pointsRateQuetzales: pointsData.pointsRateQuetzales || 3,
+          reviewBonusPoints: pointsData.reviewBonusPoints || 10,
+          referralDiscountPercent: pointsData.referralDiscountPercent || 5,
+          referralRewardPoints: pointsData.referralRewardPoints || 20,
+          referralCode: pointsData.referralCode || user?.referralCode || ''
+        });
+      } else {
+        console.error(pointsResult.reason);
+        setLoyaltyInfo((prev) => ({
+          ...prev,
+          referralCode: prev.referralCode || user?.referralCode || ''
+        }));
+      }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, user?.referralCode]);
 
   useEffect(() => {
     let active = true;
@@ -391,7 +433,7 @@ export default function CustomerDashboard() {
   ), [bookings]);
 
   const membershipBookings = useMemo(() => (
-    bookings.filter((booking) => booking.status !== 'cancelled' && booking.service?.category === 'membresia' && booking.membershipSchedule?.length > 0)
+    bookings.filter((booking) => booking.status !== 'cancelled' && isMembershipBooking(booking) && booking.membershipSchedule?.length > 0)
   ), [bookings]);
 
   const upcomingEvents = useMemo(() => (
@@ -461,7 +503,7 @@ export default function CustomerDashboard() {
       const usage = getMembershipUsage(membershipWithPendingVisits);
       items.push({
         title: 'Membresia activa',
-        message: `Te quedan ${usage.remaining} lavados programados en ${membershipWithPendingVisits.service?.title || 'tu membresia'}.`
+        message: `Te quedan ${usage.remaining} lavados programados en ${getBookingTitle(membershipWithPendingVisits)}.`
       });
     }
 
@@ -476,6 +518,49 @@ export default function CustomerDashboard() {
   }, [activeBookings, membershipBookings, upcomingEvents]);
 
   const pointsToEarn = (booking) => calculateBookingPoints(booking, loyaltyInfo.pointsRateQuetzales);
+  const referralCode = loyaltyInfo.referralCode || user?.referralCode || '';
+  const pointsBundleSpend = formatQuetzalesRate((loyaltyInfo.pointsRateQuetzales || 3) * 10);
+
+  const openReferralWhatsApp = (code, discountPercent) => {
+    const message = `Te comparto mi codigo de El Condado CarWash: ${code}. Usalo al comprar y recibes ${discountPercent}% de descuento.`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+  };
+
+  const shareReferralCode = async () => {
+    if (referralCode) {
+      openReferralWhatsApp(referralCode, loyaltyInfo.referralDiscountPercent);
+      return;
+    }
+
+    if (!token) {
+      showAlert({ type: 'info', title: 'Inicia sesion', message: 'Necesitas iniciar sesion para usar tu codigo personal.' });
+      return;
+    }
+
+    try {
+      const pointsData = await apiFetch('/loyalty/me', { token });
+      const nextCode = pointsData.referralCode || '';
+      const nextDiscountPercent = pointsData.referralDiscountPercent || 5;
+
+      setLoyaltyInfo((prev) => ({
+        ...prev,
+        pointsRateQuetzales: pointsData.pointsRateQuetzales || prev.pointsRateQuetzales,
+        reviewBonusPoints: pointsData.reviewBonusPoints || prev.reviewBonusPoints,
+        referralDiscountPercent: nextDiscountPercent,
+        referralRewardPoints: pointsData.referralRewardPoints || prev.referralRewardPoints,
+        referralCode: nextCode
+      }));
+
+      if (!nextCode) {
+        showAlert({ type: 'info', title: 'Codigo no disponible', message: 'No se pudo generar tu codigo todavia. Intenta de nuevo en un momento.' });
+        return;
+      }
+
+      openReferralWhatsApp(nextCode, nextDiscountPercent);
+    } catch (err) {
+      showAlert({ type: 'error', title: 'No se pudo cargar tu codigo', message: err.message || 'Intenta de nuevo en un momento.' });
+    }
+  };
 
   if (loading) {
     return <div style={{ color: '#fff', textAlign: 'center', padding: '100px' }}>Cargando tu experiencia premium...</div>;
@@ -646,9 +731,19 @@ export default function CustomerDashboard() {
                     <div key={booking._id} style={{ background: 'rgba(212,175,55,0.05)', border: '1px solid rgba(212,175,55,0.16)', borderRadius: '18px', padding: '1.5rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
                         <div>
-                          <p style={{ color: '#D4AF37', fontWeight: 900, margin: 0 }}>{booking.service?.title}</p>
+                          <p style={{ color: '#D4AF37', fontWeight: 900, margin: 0 }}>{getBookingTitle(booking)}</p>
                           <p style={{ color: '#718096', fontSize: '0.85rem', margin: '4px 0 0' }}>Inicio: {formatDate(booking.date)} a las {booking.time}</p>
                           <p style={{ color: '#718096', fontSize: '0.78rem', margin: '4px 0 0' }}>{getWashModeLabel(booking.washMode)}</p>
+                          {booking.customMembership?.washCount > 0 && (
+                            <p style={{ color: '#25D366', fontSize: '0.78rem', margin: '4px 0 0' }}>
+                              {booking.customMembership.washCount} lavados - {booking.customMembership.carCount} carro(s) - {getVehicleLabel(booking)}
+                            </p>
+                          )}
+                          {(booking.customMembership?.serviceBreakdown || []).length > 0 && (
+                            <p style={{ color: '#718096', fontSize: '0.76rem', margin: '4px 0 0' }}>
+                              {booking.customMembership.serviceBreakdown.map((item) => `${item.title} (${item.carWashes})`).join(' · ')}
+                            </p>
+                          )}
                         </div>
                         <span style={{ color: paymentColor(booking), fontWeight: 800, fontSize: '0.8rem' }}>
                           {booking.paymentStatus === 'paid' ? 'Activa' : paymentLabel(booking)}
@@ -671,7 +766,7 @@ export default function CustomerDashboard() {
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr auto', gap: '10px', alignItems: 'center', color: '#e5e7eb' }}>
                           <span style={{ color: '#25D366' }}><IconCheck /></span>
-                          <span>Lavado inicial: {booking.service?.title}</span>
+                          <span>Lavado inicial: {booking.customMembership?.firstVisitServiceTitle || booking.service?.title}</span>
                           <span style={{ color: '#718096', fontSize: '0.8rem' }}>{formatDate(booking.date, { weekday: undefined })} · {booking.time}</span>
                         </div>
                         {(booking.membershipSchedule || []).map((visit) => (
@@ -695,7 +790,7 @@ export default function CustomerDashboard() {
                 <tbody>
                   {bookings.slice(0, 6).map((booking) => (
                     <tr key={booking._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                      <td style={{ padding: '1rem 0', fontWeight: 600 }}>{booking.service?.title}</td>
+                      <td style={{ padding: '1rem 0', fontWeight: 600 }}>{getBookingTitle(booking)}</td>
                       <td style={{ padding: '1rem 0', color: '#718096' }}>{formatDisplayDate(booking.date)}</td>
                       <td style={{ padding: '1rem 0', textAlign: 'right' }}>
                         <span style={{ color: paymentColor(booking), fontSize: '0.85rem', fontWeight: 700 }}>
@@ -751,10 +846,19 @@ export default function CustomerDashboard() {
             <div className="glass-panel" style={{ padding: '2rem', borderRadius: '24px', textAlign: 'center' }}>
               <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Fidelidad</h3>
               <p style={{ color: '#a0aec0', fontSize: '0.85rem', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                Ganas 1 punto por cada Q{loyaltyInfo.pointsRateQuetzales} pagados cuando tu servicio se completa.
+                Ganas 10 pts por cada Q{pointsBundleSpend} gastados, o 1 pt por cada Q{formatQuetzalesRate(loyaltyInfo.pointsRateQuetzales || 3)}.
               </p>
               <div style={{ background: 'rgba(212,175,55,0.05)', padding: '1.5rem', borderRadius: '20px', border: '1px dotted rgba(212,175,55,0.3)' }}>
                 <p style={{ color: '#D4AF37', fontWeight: 800, margin: 0 }}>Reseña completada: +{loyaltyInfo.reviewBonusPoints} pts extra</p>
+              </div>
+              <div style={{ marginTop: '1rem', background: 'rgba(37,211,102,0.06)', padding: '1rem', borderRadius: '18px', border: '1px solid rgba(37,211,102,0.18)', display: 'grid', gap: '10px' }}>
+                <p style={{ color: '#25D366', fontWeight: 900, margin: 0 }}>Tu codigo: {referralCode || 'Pendiente'}</p>
+                <p style={{ color: '#a0aec0', fontSize: '0.8rem', lineHeight: 1.5, margin: 0 }}>
+                  Quien lo use recibe {loyaltyInfo.referralDiscountPercent}% de descuento y tu ganas {loyaltyInfo.referralRewardPoints} pts cuando pague.
+                </p>
+                <button type="button" onClick={shareReferralCode} style={{ ...ghostBtn, width: '100%', padding: '11px 14px', color: '#25D366', borderColor: 'rgba(37,211,102,0.28)' }}>
+                  {referralCode ? 'Compartir por WhatsApp' : 'Generar y compartir'}
+                </button>
               </div>
             </div>
 

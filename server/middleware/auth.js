@@ -14,7 +14,7 @@ exports.protect = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = await User.findById(decoded.id).select('name email role loyalty_points');
+    req.user = await User.findById(decoded.id).select('name email phone address referralCode role loyalty_points');
 
     if (!req.user) {
       return res.status(401).json({ message: 'No autorizado' });

@@ -10,6 +10,12 @@ const {
   REVIEW_BONUS_POINTS,
   getPointsRateQuetzales
 } = require('../utils/loyaltyPoints');
+const {
+  REFERRAL_DISCOUNT_RATE,
+  REFERRAL_REWARD_POINTS,
+  ensureReferralCode,
+  findValidReferrer
+} = require('../utils/referrals');
 const { auditLog } = require('../utils/auditLogger');
 
 exports.getServiceReviews = async (req, res) => {
@@ -80,15 +86,41 @@ exports.createReview = async (req, res) => {
 
 exports.getLoyaltyPoints = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('loyalty_points');
+    const user = await User.findById(req.user.id).select('name loyalty_points referralCode');
     if (!user) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
+    await ensureReferralCode(user);
+
     return res.status(200).json({
       points: user.loyalty_points,
       pointsRateQuetzales: getPointsRateQuetzales(),
-      reviewBonusPoints: REVIEW_BONUS_POINTS
+      reviewBonusPoints: REVIEW_BONUS_POINTS,
+      referralCode: user.referralCode,
+      referralDiscountPercent: Math.round(REFERRAL_DISCOUNT_RATE * 100),
+      referralRewardPoints: REFERRAL_REWARD_POINTS
+    });
+  } catch (error) {
+    console.error('Error al obtener fidelidad:', error.message);
+    return res.status(500).json({ message: 'Error del servidor' });
+  }
+};
+
+exports.validateReferralCode = async (req, res) => {
+  try {
+    const result = await findValidReferrer(req.params.code, req.user.id);
+    if (result.error) {
+      const statusCode = result.error.includes('propio') ? 400 : 404;
+      return res.status(statusCode).json({ message: result.error });
+    }
+
+    return res.status(200).json({
+      valid: true,
+      code: result.referralCode,
+      referrerName: result.referrer.name,
+      discountRatePercent: Math.round(REFERRAL_DISCOUNT_RATE * 100),
+      rewardPoints: REFERRAL_REWARD_POINTS
     });
   } catch (error) {
     return res.status(500).json({ message: 'Error del servidor' });

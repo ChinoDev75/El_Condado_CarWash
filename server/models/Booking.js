@@ -25,6 +25,12 @@ const bookingSchema = new mongoose.Schema({
     maxlength: 254,
     default: ''
   },
+  customerAddress: {
+    type: String,
+    trim: true,
+    maxlength: 220,
+    default: ''
+  },
   service: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Service',
@@ -48,6 +54,12 @@ const bookingSchema = new mongoose.Schema({
     uppercase: true,
     maxlength: 12
   },
+  vehiclePlates: [{
+    type: String,
+    trim: true,
+    uppercase: true,
+    maxlength: 12
+  }],
   status: {
     type: String,
     enum: ['awaiting_payment', 'pending', 'confirmed', 'completed', 'cancelled'],
@@ -120,10 +132,163 @@ const bookingSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
+  referral: {
+    code: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: 24,
+      default: ''
+    },
+    referrer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true
+    },
+    discountRatePercent: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0
+    },
+    discountCents: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    rewardPoints: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    rewardAwarded: {
+      type: Boolean,
+      default: false
+    },
+    rewardAwardedAt: {
+      type: Date,
+      default: null
+    }
+  },
   membershipPlan: {
     type: String,
-    enum: ['none', 'monthly', 'quarterly'],
+    enum: ['none', 'monthly', 'quarterly', 'custom'],
     default: 'none'
+  },
+  customMembership: {
+    planName: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: ''
+    },
+    washCount: {
+      type: Number,
+      min: 0,
+      max: 52,
+      default: 0
+    },
+    originalSubtotalCents: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    discountRatePercent: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0
+    },
+    discountCents: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    discountedSubtotalCents: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    carTier: {
+      type: String,
+      enum: ['individual', 'duo', 'trio', 'four_plus', null],
+      default: null
+    },
+    carCount: {
+      type: Number,
+      min: 0,
+      max: 12,
+      default: 0
+    },
+    washServiceTitle: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: ''
+    },
+    firstVisitServiceTitle: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: ''
+    },
+    firstVisitDurationMinutes: {
+      type: Number,
+      min: 15,
+      max: 480,
+      default: 60
+    },
+    firstVisitSubtotalCents: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    pricePerCarWashCents: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    durationPerVisitMinutes: {
+      type: Number,
+      min: 15,
+      max: 480,
+      default: 60
+    },
+    serviceBreakdown: [{
+      service: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Service',
+        default: null
+      },
+      title: {
+        type: String,
+        trim: true,
+        maxlength: 120,
+        default: ''
+      },
+      category: {
+        type: String,
+        trim: true,
+        maxlength: 30,
+        default: ''
+      },
+      visits: {
+        type: Number,
+        min: 0,
+        default: 0
+      },
+      carWashes: {
+        type: Number,
+        min: 0,
+        default: 0
+      },
+      subtotalCents: {
+        type: Number,
+        min: 0,
+        default: 0
+      }
+    }]
   },
   membershipSchedule: [{
     date: {
@@ -142,12 +307,40 @@ const bookingSchema = new mongoose.Schema({
       trim: true,
       maxlength: 120
     },
+    service: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Service',
+      default: null
+    },
+    serviceTitle: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: ''
+    },
+    serviceCategory: {
+      type: String,
+      trim: true,
+      maxlength: 30,
+      default: ''
+    },
+    subtotalCents: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
     durationMinutes: {
       type: Number,
       default: 60,
       min: 15,
       max: 480
     },
+    vehiclePlates: [{
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: 12
+    }],
     status: {
       type: String,
       enum: ['scheduled', 'completed', 'cancelled'],

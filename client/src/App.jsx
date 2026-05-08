@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import Home from "./pages/Home";
 import Success from "./pages/Success";
+import InviteSignup from "./pages/InviteSignup";
 import CustomerDashboard from "./pages/dashboard/CustomerDashboard";
 import AdminConsole from "./pages/dashboard/AdminConsole";
 import { useAuth } from "./context/useAuth";
@@ -15,6 +16,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/success" element={<Success />} />
+        <Route path="/crear-cuenta/:token" element={<InviteSignup />} />
         
         {/* Rutas Protegidas */}
         <Route 

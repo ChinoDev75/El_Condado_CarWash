@@ -19,6 +19,27 @@ const userSchema = new mongoose.Schema({
       'Por favor agrega un correo valido'
     ]
   },
+  phone: {
+    type: String,
+    trim: true,
+    maxlength: 30,
+    default: ''
+  },
+  address: {
+    type: String,
+    trim: true,
+    maxlength: 220,
+    default: ''
+  },
+  referralCode: {
+    type: String,
+    unique: true,
+    sparse: true,
+    uppercase: true,
+    trim: true,
+    maxlength: 16,
+    index: true
+  },
   password: {
     type: String,
     required: [true, 'Por favor agrega una contraseña'],

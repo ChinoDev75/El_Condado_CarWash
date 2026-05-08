@@ -86,7 +86,11 @@ exports.getAvailability = async (req, res) => {
       return res.status(400).json({ message: 'Servicio o fecha invalida' });
     }
 
-    const availability = await getAvailabilityForService({ serviceId, date });
+    const durationMinutes = Number(req.query.durationMinutes);
+    const durationMinutesOverride = Number.isFinite(durationMinutes) && durationMinutes >= 15 && durationMinutes <= 480
+      ? durationMinutes
+      : null;
+    const availability = await getAvailabilityForService({ serviceId, date, durationMinutesOverride });
     if (!availability.service) {
       return res.status(404).json({ message: 'Servicio no encontrado' });
     }

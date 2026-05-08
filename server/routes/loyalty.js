@@ -1,11 +1,17 @@
 const express = require('express');
 const router = express.Router();
-const { createReview, getServiceReviews, getLoyaltyPoints } = require('../controllers/loyaltyController');
+const {
+  createReview,
+  getServiceReviews,
+  getLoyaltyPoints,
+  validateReferralCode
+} = require('../controllers/loyaltyController');
 const { protect } = require('../middleware/auth');
 const Review = require('../models/Review');
 
 // Rutas de fidelidad
 router.get('/me', protect, getLoyaltyPoints);
+router.get('/referrals/:code', protect, validateReferralCode);
 
 // Rutas de reseñas
 router.get('/reviews/all', async (req, res) => {
