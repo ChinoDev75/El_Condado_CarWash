@@ -197,6 +197,8 @@ export default function CustomerDashboard() {
     reviewBonusPoints: 10,
     referralDiscountPercent: 5,
     referralRewardPoints: 20,
+    redemptionBlockPoints: 100,
+    redemptionDiscountQuetzales: 20,
     referralCode: ''
   });
   const [loading, setLoading] = useState(true);
@@ -265,6 +267,8 @@ export default function CustomerDashboard() {
           reviewBonusPoints: pointsData.reviewBonusPoints || 10,
           referralDiscountPercent: pointsData.referralDiscountPercent || 5,
           referralRewardPoints: pointsData.referralRewardPoints || 20,
+          redemptionBlockPoints: pointsData.redemptionBlockPoints || 100,
+          redemptionDiscountQuetzales: pointsData.redemptionDiscountQuetzales || 20,
           referralCode: pointsData.referralCode || user?.referralCode || ''
         });
       } else {
@@ -548,6 +552,8 @@ export default function CustomerDashboard() {
         reviewBonusPoints: pointsData.reviewBonusPoints || prev.reviewBonusPoints,
         referralDiscountPercent: nextDiscountPercent,
         referralRewardPoints: pointsData.referralRewardPoints || prev.referralRewardPoints,
+        redemptionBlockPoints: pointsData.redemptionBlockPoints || prev.redemptionBlockPoints,
+        redemptionDiscountQuetzales: pointsData.redemptionDiscountQuetzales || prev.redemptionDiscountQuetzales,
         referralCode: nextCode
       }));
 
@@ -850,6 +856,11 @@ export default function CustomerDashboard() {
               </p>
               <div style={{ background: 'rgba(212,175,55,0.05)', padding: '1.5rem', borderRadius: '20px', border: '1px dotted rgba(212,175,55,0.3)' }}>
                 <p style={{ color: '#D4AF37', fontWeight: 800, margin: 0 }}>Reseña completada: +{loyaltyInfo.reviewBonusPoints} pts extra</p>
+              </div>
+              <div style={{ background: 'rgba(212,175,55,0.05)', padding: '1.5rem', borderRadius: '20px', border: '1px dotted rgba(212,175,55,0.3)' }}>
+                <p style={{ color: '#D4AF37', fontWeight: 800, margin: 0 }}>
+                  Cada {loyaltyInfo.redemptionBlockPoints} pts son Q{formatQuetzalesRate(loyaltyInfo.redemptionDiscountQuetzales)} de descuento
+                </p>
               </div>
               <div style={{ marginTop: '1rem', background: 'rgba(37,211,102,0.06)', padding: '1rem', borderRadius: '18px', border: '1px solid rgba(37,211,102,0.18)', display: 'grid', gap: '10px' }}>
                 <p style={{ color: '#25D366', fontWeight: 900, margin: 0 }}>Tu codigo: {referralCode || 'Pendiente'}</p>

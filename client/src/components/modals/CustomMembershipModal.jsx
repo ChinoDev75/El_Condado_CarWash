@@ -19,6 +19,14 @@ const formatCurrency = (cents) => `Q ${Math.round((cents || 0) / 100).toLocaleSt
 const calculateCardFee = (subtotalCents) => roundToWholeQuetzalCents(Math.round(subtotalCents * 0.045) + 200);
 const normalizeReferralCode = (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24);
 const DEFAULT_REFERRAL_DISCOUNT_PERCENT = 5;
+const DEFAULT_REDEMPTION_BLOCK_POINTS = 100;
+const DEFAULT_REDEMPTION_DISCOUNT_CENTS = 2000;
+
+const defaultLoyaltyInfo = {
+  points: 0,
+  redemptionBlockPoints: DEFAULT_REDEMPTION_BLOCK_POINTS,
+  redemptionDiscountCents: DEFAULT_REDEMPTION_DISCOUNT_CENTS,
+};
 
 const getMembershipDiscountRate = (grossSubtotalCents) => {
   if (grossSubtotalCents >= 40000) return 0.23;
@@ -44,10 +52,10 @@ const getMembershipSavings = (grossSubtotalCents) => {
 
 const getNextDiscountMessage = (grossSubtotalCents) => {
   const nextTier = [
-    { minCents: 15000, rate: 12 },
-    { minCents: 22500, rate: 15 },
-    { minCents: 30000, rate: 18 },
-    { minCents: 40000, rate: 20 },
+    { minCents: 15000, rate: 15 },
+    { minCents: 22500, rate: 18 },
+    { minCents: 30000, rate: 20 },
+    { minCents: 40000, rate: 23 },
   ].find((tier) => grossSubtotalCents < tier.minCents);
 
   if (!nextTier) {
@@ -96,6 +104,8 @@ export default function CustomMembershipModal({ open, onClose, onAuthOpen }) {
   const [referralInfo, setReferralInfo] = useState(null);
   const [referralLoading, setReferralLoading] = useState(false);
   const [referralMessage, setReferralMessage] = useState("");
+  const [loyaltyInfo, setLoyaltyInfo] = useState(defaultLoyaltyInfo);
+  const [loyaltyBlocks, setLoyaltyBlocks] = useState(0);
   const [form, setForm] = useState({
     planName: "Mi membresia personalizada",
     carTier: "individual",
@@ -133,8 +143,18 @@ export default function CustomMembershipModal({ open, onClose, onAuthOpen }) {
     ? roundToWholeQuetzalCents(membershipSavings.discountedSubtotalCents * ((referralInfo.discountRatePercent || DEFAULT_REFERRAL_DISCOUNT_PERCENT) / 100))
     : 0;
   const referralSubtotalCents = roundToWholeQuetzalCents(membershipSavings.discountedSubtotalCents - referralDiscountCents);
-  const feeCents = form.paymentMethod === "card" ? calculateCardFee(referralSubtotalCents) : 0;
-  const totalCents = referralSubtotalCents + feeCents;
+  const redemptionBlockPoints = loyaltyInfo.redemptionBlockPoints || DEFAULT_REDEMPTION_BLOCK_POINTS;
+  const redemptionDiscountCents = loyaltyInfo.redemptionDiscountCents || DEFAULT_REDEMPTION_DISCOUNT_CENTS;
+  const maxLoyaltyBlocks = Math.max(0, Math.min(
+    Math.floor((loyaltyInfo.points || 0) / redemptionBlockPoints),
+    Math.floor(referralSubtotalCents / redemptionDiscountCents)
+  ));
+  const selectedLoyaltyBlocks = Math.min(loyaltyBlocks, maxLoyaltyBlocks);
+  const loyaltyPointsToRedeem = selectedLoyaltyBlocks * redemptionBlockPoints;
+  const loyaltyDiscountCents = selectedLoyaltyBlocks * redemptionDiscountCents;
+  const finalSubtotalCents = roundToWholeQuetzalCents(referralSubtotalCents - loyaltyDiscountCents);
+  const feeCents = form.paymentMethod === "card" ? calculateCardFee(finalSubtotalCents) : 0;
+  const totalCents = finalSubtotalCents + feeCents;
 
   useEffect(() => {
     let active = true;
@@ -158,6 +178,39 @@ export default function CustomMembershipModal({ open, onClose, onAuthOpen }) {
       active = false;
     };
   }, [open]);
+
+  useEffect(() => {
+    let active = true;
+
+    queueMicrotask(async () => {
+      if (!open || !user || !token) {
+        setLoyaltyInfo(defaultLoyaltyInfo);
+        setLoyaltyBlocks(0);
+        return;
+      }
+
+      try {
+        const data = await apiFetch("/loyalty/me", { token });
+        if (!active) return;
+        setLoyaltyInfo({
+          points: data.points || 0,
+          redemptionBlockPoints: data.redemptionBlockPoints || DEFAULT_REDEMPTION_BLOCK_POINTS,
+          redemptionDiscountCents: data.redemptionDiscountCents || DEFAULT_REDEMPTION_DISCOUNT_CENTS,
+        });
+      } catch (err) {
+        console.error(err);
+        if (active) setLoyaltyInfo(defaultLoyaltyInfo);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [open, token, user]);
+
+  useEffect(() => {
+    setLoyaltyBlocks((current) => (current > maxLoyaltyBlocks ? maxLoyaltyBlocks : current));
+  }, [maxLoyaltyBlocks]);
 
   useEffect(() => {
     let active = true;
@@ -208,6 +261,7 @@ export default function CustomMembershipModal({ open, onClose, onAuthOpen }) {
     setReferralInfo(null);
     setReferralLoading(false);
     setReferralMessage("");
+    setLoyaltyBlocks(0);
     onClose();
   };
 
@@ -243,6 +297,11 @@ export default function CustomMembershipModal({ open, onClose, onAuthOpen }) {
     setReferralCode(normalizeReferralCode(event.target.value));
     setReferralInfo(null);
     setReferralMessage("");
+    setError("");
+  };
+
+  const handleLoyaltyBlocksChange = (event) => {
+    setLoyaltyBlocks(Number(event.target.value) || 0);
     setError("");
   };
 
@@ -390,6 +449,7 @@ export default function CustomMembershipModal({ open, onClose, onAuthOpen }) {
           washMode: form.washMode,
           paymentMethod: form.paymentMethod,
           referralCode: referralInfo?.code || "",
+          loyaltyPointsToRedeem,
         }),
       });
 
@@ -612,6 +672,37 @@ export default function CustomMembershipModal({ open, onClose, onAuthOpen }) {
               <div style={{ display: "flex", justifyContent: "space-between", color: "#25D366", fontWeight: 900 }}>
                 <span>Descuento referido ({referralInfo?.discountRatePercent || DEFAULT_REFERRAL_DISCOUNT_PERCENT}%)</span>
                 <span>-{formatCurrency(referralDiscountCents)}</span>
+              </div>
+            )}
+            <div style={{ display: "grid", gap: "8px" }}>
+              <label style={{ color: "#a0aec0", fontSize: "0.8rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Puntos de fidelidad
+              </label>
+              {maxLoyaltyBlocks > 0 ? (
+                <>
+                  <select value={selectedLoyaltyBlocks} onChange={handleLoyaltyBlocksChange} style={inputStyle}>
+                    {Array.from({ length: maxLoyaltyBlocks + 1 }, (_, blocks) => (
+                      <option key={blocks} value={blocks}>
+                        {blocks === 0
+                          ? `No usar puntos (${loyaltyInfo.points || 0} disponibles)`
+                          : `${blocks * redemptionBlockPoints} pts = -${formatCurrency(blocks * redemptionDiscountCents)}`}
+                      </option>
+                    ))}
+                  </select>
+                  <p style={{ margin: 0, color: "#718096", fontSize: "0.76rem" }}>
+                    Cada {redemptionBlockPoints} pts descuentan {formatCurrency(redemptionDiscountCents)}.
+                  </p>
+                </>
+              ) : (
+                <p style={{ margin: 0, color: "#718096", fontSize: "0.76rem" }}>
+                  Tienes {loyaltyInfo.points || 0} pts. Necesitas {redemptionBlockPoints} pts para canjear {formatCurrency(redemptionDiscountCents)}.
+                </p>
+              )}
+            </div>
+            {loyaltyDiscountCents > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", color: "#25D366", fontWeight: 900 }}>
+                <span>Descuento puntos ({loyaltyPointsToRedeem} pts)</span>
+                <span>-{formatCurrency(loyaltyDiscountCents)}</span>
               </div>
             )}
             <select name="paymentMethod" value={form.paymentMethod} onChange={updateField} style={inputStyle}>

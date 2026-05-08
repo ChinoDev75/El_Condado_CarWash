@@ -1620,6 +1620,11 @@ export default function AdminConsole() {
                             : `${calculateBookingPoints(b)} pts al completar`}
                         </div>
                         <div style={{ fontSize: '0.75rem', color: '#718096' }}>{formatCurrency(b.totalCents || parsePriceCents(b.service?.price))} · {paymentMethodLabel(b.paymentMethod)}</div>
+                        {b.loyaltyRedemption?.discountCents > 0 && (
+                          <div style={{ fontSize: '0.72rem', color: '#25D366' }}>
+                            Canjeo {b.loyaltyRedemption.points} pts por -{formatCurrency(b.loyaltyRedemption.discountCents)}
+                          </div>
+                        )}
                         <div style={{ fontSize: '0.74rem', color: '#718096' }}>{getWashModeLabel(b.washMode)}</div>
                         {b.customMembership?.washCount > 0 && !b.isMembershipVisit && (
                           <div style={{ fontSize: '0.74rem', color: '#25D366' }}>

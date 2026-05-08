@@ -6,6 +6,7 @@ const { protect } = require('../middleware/auth');
 const { rateLimit } = require('../middleware/rateLimit');
 const { isValidObjectId } = require('../utils/validation');
 const { awardReferralReward } = require('../utils/referrals');
+const { reserveLoyaltyPoints } = require('../utils/loyaltyPoints');
 const { isSlotAvailable } = require('../utils/scheduler');
 const { auditLog } = require('../utils/auditLogger');
 
@@ -23,6 +24,26 @@ const appendInternalNote = (booking, note) => {
 };
 
 const paidNeedsReprogrammingMessage = 'El pago fue recibido, pero la reserva no quedo confirmada. Contactanos para reprogramarla.';
+
+const captureRefundedLoyaltyRedemption = async (booking) => {
+  const points = booking.loyaltyRedemption?.points || 0;
+  if (!points || !booking.loyaltyRedemption.refunded) {
+    return true;
+  }
+
+  const reserved = await reserveLoyaltyPoints(booking.user, points);
+  if (reserved) {
+    booking.loyaltyRedemption.refunded = false;
+    booking.loyaltyRedemption.refundedAt = null;
+    return true;
+  }
+
+  booking.internalNotes = appendInternalNote(
+    booking,
+    'El pago uso descuento de puntos, pero los puntos ya habian sido devueltos y no se pudieron capturar de nuevo.'
+  );
+  return false;
+};
 
 const canConfirmPaidBooking = async (booking) => {
   await booking.populate('service', 'title durationMinutes');
@@ -71,6 +92,7 @@ const markPaidWithoutConfirmation = async (booking, note, eventId = null) => {
     booking.recurrenteEventId = eventId;
   }
 
+  await captureRefundedLoyaltyRedemption(booking);
   await awardReferralReward(booking);
   await booking.save();
 };
@@ -110,6 +132,7 @@ const markBookingPaid = async (booking, eventId = null) => {
     booking.recurrenteEventId = eventId;
   }
 
+  await captureRefundedLoyaltyRedemption(booking);
   await awardReferralReward(booking);
   try {
     await booking.save();

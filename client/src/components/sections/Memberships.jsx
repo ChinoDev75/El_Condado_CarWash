@@ -105,6 +105,9 @@ function MembershipCard({
 }) {
   const [schedOpen, setSchedOpen] = useState(false);
   const IconComponent = Icons[iconName] || Icons.IconCrown;
+  const visibleFeatures = isTrimestral
+    ? [...new Set(["9 visitas en 3 meses", ...(features?.length ? features : ["6 lavados completos", "3 lavados exteriores"])])]
+    : features || [];
 
   return (
     <div className="card-hover">
@@ -229,7 +232,7 @@ function MembershipCard({
               textTransform: "uppercase",
             }}
           >
-            {isTrimestral ? "Beneficios Exclusivos" : "Servicios Incluidos"}
+            {isTrimestral ? "Plan trimestral" : "Servicios Incluidos"}
           </p>
 
           <div style={{ flex: 1 }}>
@@ -241,20 +244,7 @@ function MembershipCard({
                   marginBottom: "1.5rem",
                 }}
               >
-                {[
-                  {
-                    mes: "Mes 1 & 3 (Impar)",
-                    items: [
-                      "Completo + Encerado Líquido",
-                      "Día +15: Exterior",
-                      "Final: Completo",
-                    ],
-                  },
-                  {
-                    mes: "Mes 2 (Par)",
-                    items: ["Inicio: Exterior", "Día +15: Completo", "Final: Exterior"],
-                  },
-                ].map(({ mes, items }) => (
+                {[{ mes: "Plan completo", items: visibleFeatures }].map(({ mes, items }) => (
                   <div
                     key={mes}
                     style={{

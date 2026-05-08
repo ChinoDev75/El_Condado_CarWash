@@ -132,6 +132,26 @@ const bookingSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
+  loyaltyRedemption: {
+    points: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    discountCents: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    refunded: {
+      type: Boolean,
+      default: false
+    },
+    refundedAt: {
+      type: Date,
+      default: null
+    }
+  },
   referral: {
     code: {
       type: String,

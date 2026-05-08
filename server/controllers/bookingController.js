@@ -37,7 +37,13 @@ const {
   getPlateIssues,
   isValidPlate
 } = require('../utils/validation');
-const { calculateLoyaltyPoints } = require('../utils/loyaltyPoints');
+const {
+  calculateLoyaltyPoints,
+  getLoyaltyRedemptionQuote,
+  refundBookingLoyaltyRedemption,
+  refundLoyaltyPoints,
+  reserveLoyaltyPoints
+} = require('../utils/loyaltyPoints');
 const {
   REFERRAL_REWARD_POINTS,
   awardReferralReward,
@@ -115,19 +121,21 @@ const getMembershipPlan = (service) => {
 const getMembershipVisits = (plan) => {
   if (plan === 'monthly') {
     return [
-      { offsetDays: 15, title: 'Lavado exterior de membresia', durationMinutes: 30 },
-      { offsetDays: 30, title: 'Lavado completo de cierre mensual', durationMinutes: 60 }
+      { offsetDays: 15, title: 'Membresia mensual - Visita 2/3: lavado exterior', durationMinutes: 30 },
+      { offsetDays: 30, title: 'Membresia mensual - Visita 3/3: lavado completo final', durationMinutes: 60 }
     ];
   }
 
   if (plan === 'quarterly') {
     return [
-      { offsetDays: 15, title: 'Lavado exterior de membresia', durationMinutes: 30 },
-      { offsetDays: 30, title: 'Lavado completo mes 1', durationMinutes: 60 },
-      { offsetDays: 45, title: 'Lavado exterior mes 2', durationMinutes: 30 },
-      { offsetDays: 60, title: 'Lavado completo mes 2', durationMinutes: 60 },
-      { offsetDays: 75, title: 'Lavado exterior mes 3', durationMinutes: 30 },
-      { offsetDays: 90, title: 'Lavado completo final trimestral', durationMinutes: 60 }
+      { offsetDays: 15, title: 'Membresia trimestral - Visita 2/9: lavado exterior mes 1', durationMinutes: 30 },
+      { offsetDays: 30, title: 'Membresia trimestral - Visita 3/9: lavado completo cierre mes 1', durationMinutes: 60 },
+      { offsetDays: 31, title: 'Membresia trimestral - Visita 4/9: lavado completo inicio mes 2', durationMinutes: 60 },
+      { offsetDays: 45, title: 'Membresia trimestral - Visita 5/9: lavado exterior mes 2', durationMinutes: 30 },
+      { offsetDays: 60, title: 'Membresia trimestral - Visita 6/9: lavado completo cierre mes 2', durationMinutes: 60 },
+      { offsetDays: 61, title: 'Membresia trimestral - Visita 7/9: lavado completo inicio mes 3', durationMinutes: 60 },
+      { offsetDays: 75, title: 'Membresia trimestral - Visita 8/9: lavado exterior mes 3', durationMinutes: 30 },
+      { offsetDays: 90, title: 'Membresia trimestral - Visita 9/9: lavado completo final', durationMinutes: 60 }
     ];
   }
 
@@ -275,10 +283,10 @@ const CUSTOM_MEMBERSHIP_SERVICE_CATEGORIES = new Set(['lavado', 'promo', 'extra'
 const roundToWholeQuetzalCents = (cents) => Math.max(0, Math.round((Number(cents) || 0) / 100) * 100);
 
 const getCustomMembershipDiscountRate = (grossSubtotalCents) => {
-  if (grossSubtotalCents >= 40000) return 0.20;
-  if (grossSubtotalCents >= 30000) return 0.18;
-  if (grossSubtotalCents >= 22500) return 0.15;
-  if (grossSubtotalCents >= 15000) return 0.12;
+  if (grossSubtotalCents >= 40000) return 0.23;
+  if (grossSubtotalCents >= 30000) return 0.20;
+  if (grossSubtotalCents >= 22500) return 0.18;
+  if (grossSubtotalCents >= 15000) return 0.15;
   return 0.10;
 };
 
@@ -333,6 +341,75 @@ const applyReferralDiscount = async ({ financials, paymentMethod, referralCode, 
       rewardPoints: REFERRAL_REWARD_POINTS
     }
   };
+};
+
+const applyLoyaltyRedemption = async ({ financials, paymentMethod, userId, requestedPoints }) => {
+  const quote = await getLoyaltyRedemptionQuote({
+    userId,
+    requestedPoints,
+    subtotalCents: financials.subtotalCents
+  });
+
+  if (quote.error) {
+    return { error: quote.error };
+  }
+
+  if (!quote.points) {
+    return { financials, loyaltyRedemption: undefined };
+  }
+
+  const subtotalCents = roundToWholeQuetzalCents(financials.subtotalCents - quote.discountCents);
+  const paymentAmounts = calculatePaymentAmounts(subtotalCents, paymentMethod);
+  const paymentFeeCents = paymentMethod === 'card'
+    ? roundToWholeQuetzalCents(paymentAmounts.paymentFeeCents)
+    : 0;
+
+  return {
+    financials: {
+      ...financials,
+      subtotalCents,
+      paymentFeeCents,
+      totalCents: roundToWholeQuetzalCents(subtotalCents + paymentFeeCents)
+    },
+    loyaltyRedemption: {
+      points: quote.points,
+      discountCents: quote.discountCents,
+      refunded: false,
+      refundedAt: null
+    }
+  };
+};
+
+const reserveBookingLoyaltyPoints = async (userId, loyaltyRedemption) => {
+  const points = loyaltyRedemption?.points || 0;
+  if (!points) return 0;
+
+  const reserved = await reserveLoyaltyPoints(userId, points);
+  if (!reserved) {
+    throw new Error('No tienes suficientes puntos para aplicar ese descuento.');
+  }
+
+  return points;
+};
+
+const captureRefundedBookingLoyaltyPoints = async (booking) => {
+  const points = booking.loyaltyRedemption?.points || 0;
+  if (!points || !booking.loyaltyRedemption.refunded) {
+    return true;
+  }
+
+  const reserved = await reserveLoyaltyPoints(booking.user, points);
+  if (reserved) {
+    booking.loyaltyRedemption.refunded = false;
+    booking.loyaltyRedemption.refundedAt = null;
+    return true;
+  }
+
+  booking.internalNotes = [
+    booking.internalNotes,
+    'Pago marcado como recibido con descuento de puntos, pero los puntos ya habian sido devueltos y no se pudieron capturar de nuevo.'
+  ].filter(Boolean).join('\n').slice(0, 500);
+  return false;
 };
 
 const getSelectedVisitPlates = (itemPlates, allVehiclePlates) => {
@@ -459,6 +536,7 @@ const buildCustomSchedule = async ({ schedule, washCount, serviceMap, defaultSer
 
 exports.createBooking = async (req, res) => {
   let booking;
+  let reservedLoyaltyPoints = 0;
 
   try {
     await expireUnpaidBookings();
@@ -491,13 +569,24 @@ exports.createBooking = async (req, res) => {
       return res.status(400).json({ message: referralResult.error });
     }
 
-    const financials = referralResult.financials;
+    const loyaltyResult = await applyLoyaltyRedemption({
+      financials: referralResult.financials,
+      paymentMethod,
+      userId: req.user.id,
+      requestedPoints: req.body.loyaltyPointsToRedeem
+    });
+    if (loyaltyResult.error) {
+      return res.status(400).json({ message: loyaltyResult.error });
+    }
+
+    const financials = loyaltyResult.financials;
     const membership = await generateMembershipSchedule({
       service,
       startDate: bookingDate,
       time
     });
     const requiresCheckout = paymentMethod === 'card';
+    reservedLoyaltyPoints = await reserveBookingLoyaltyPoints(req.user.id, loyaltyResult.loyaltyRedemption);
 
     booking = await Booking.create({
       user: req.user.id,
@@ -516,6 +605,7 @@ exports.createBooking = async (req, res) => {
       paymentMethod,
       ...financials,
       referral: referralResult.referral,
+      loyaltyRedemption: loyaltyResult.loyaltyRedemption,
       expiresAt: requiresCheckout ? getBookingExpiration() : null,
       membershipPlan: membership.plan,
       membershipSchedule: membership.visits
@@ -537,6 +627,7 @@ exports.createBooking = async (req, res) => {
       } catch (err) {
         console.error('Error critico al generar checkout:', err.message);
         await Booking.findByIdAndDelete(booking._id);
+        await refundLoyaltyPoints(req.user.id, reservedLoyaltyPoints);
         return res.status(502).json({
           success: false,
           message: 'No se pudo generar el enlace de pago seguro. Por favor intenta de nuevo.'
@@ -562,6 +653,7 @@ exports.createBooking = async (req, res) => {
     });
   } catch (error) {
     console.error(error);
+    await refundLoyaltyPoints(req.user.id, reservedLoyaltyPoints);
 
     if (error.code === 11000) {
       return res.status(409).json({ message: 'Ese horario ya esta reservado. Elige otra hora.' });
@@ -573,6 +665,7 @@ exports.createBooking = async (req, res) => {
 
 exports.createCustomMembership = async (req, res) => {
   let booking;
+  let reservedLoyaltyPoints = 0;
 
   try {
     await expireUnpaidBookings();
@@ -639,12 +732,23 @@ exports.createCustomMembership = async (req, res) => {
       return res.status(400).json({ message: referralResult.error });
     }
 
-    const financials = referralResult.financials;
+    const loyaltyResult = await applyLoyaltyRedemption({
+      financials: referralResult.financials,
+      paymentMethod,
+      userId: req.user.id,
+      requestedPoints: req.body.loyaltyPointsToRedeem
+    });
+    if (loyaltyResult.error) {
+      return res.status(400).json({ message: loyaltyResult.error });
+    }
+
+    const financials = loyaltyResult.financials;
     const requiresCheckout = paymentMethod === 'card';
     const [firstVisit, ...remainingVisits] = scheduleResult.visits;
     const vehiclePlates = plateResult.plates;
     const titlePrefix = `${planName} - ${customCarTierLabels[carTier] || `${carCount} carros`}`;
     const serviceBreakdown = summarizeCustomServices(scheduleResult.visits);
+    reservedLoyaltyPoints = await reserveBookingLoyaltyPoints(req.user.id, loyaltyResult.loyaltyRedemption);
 
     booking = await Booking.create({
       user: req.user.id,
@@ -663,6 +767,7 @@ exports.createCustomMembership = async (req, res) => {
       paymentMethod,
       ...financials,
       referral: referralResult.referral,
+      loyaltyRedemption: loyaltyResult.loyaltyRedemption,
       expiresAt: requiresCheckout ? getBookingExpiration() : null,
       membershipPlan: 'custom',
       customMembership: {
@@ -713,6 +818,7 @@ exports.createCustomMembership = async (req, res) => {
       } catch (err) {
         console.error('Error critico al generar checkout de membresia:', err.message);
         await Booking.findByIdAndDelete(booking._id);
+        await refundLoyaltyPoints(req.user.id, reservedLoyaltyPoints);
         return res.status(502).json({
           success: false,
           message: 'No se pudo generar el enlace de pago seguro. Por favor intenta de nuevo.'
@@ -739,6 +845,7 @@ exports.createCustomMembership = async (req, res) => {
     });
   } catch (error) {
     console.error(error);
+    await refundLoyaltyPoints(req.user.id, reservedLoyaltyPoints);
 
     if (booking?._id && error.code === 11000) {
       await Booking.findByIdAndDelete(booking._id);
@@ -1055,6 +1162,9 @@ exports.cancelBooking = async (req, res) => {
         visit.status = 'cancelled';
       }
     });
+    if (booking.paymentStatus !== 'paid') {
+      await refundBookingLoyaltyRedemption(booking);
+    }
     await booking.save();
     await booking.populate('user', 'name email phone address');
     await booking.populate('service', 'title price category durationMinutes');
@@ -1235,7 +1345,12 @@ exports.updateBookingStatus = async (req, res) => {
     }
 
     if (booking.paymentStatus === 'paid') {
+      await captureRefundedBookingLoyaltyPoints(booking);
       await awardReferralReward(booking);
+    }
+
+    if (booking.status === 'cancelled' && booking.paymentStatus !== 'paid') {
+      await refundBookingLoyaltyRedemption(booking);
     }
 
     if (booking.status === 'completed' && booking.user && booking.paymentStatus === 'paid' && !booking.pointsAwarded) {

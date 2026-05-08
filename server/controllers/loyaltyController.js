@@ -8,7 +8,10 @@ const {
 } = require('../utils/validation');
 const {
   REVIEW_BONUS_POINTS,
-  getPointsRateQuetzales
+  POINT_REDEMPTION_BLOCK_POINTS,
+  POINT_REDEMPTION_DISCOUNT_CENTS,
+  getPointsRateQuetzales,
+  getRedemptionDiscountQuetzales
 } = require('../utils/loyaltyPoints');
 const {
   REFERRAL_DISCOUNT_RATE,
@@ -97,6 +100,9 @@ exports.getLoyaltyPoints = async (req, res) => {
       points: user.loyalty_points,
       pointsRateQuetzales: getPointsRateQuetzales(),
       reviewBonusPoints: REVIEW_BONUS_POINTS,
+      redemptionBlockPoints: POINT_REDEMPTION_BLOCK_POINTS,
+      redemptionDiscountCents: POINT_REDEMPTION_DISCOUNT_CENTS,
+      redemptionDiscountQuetzales: getRedemptionDiscountQuetzales(),
       referralCode: user.referralCode,
       referralDiscountPercent: Math.round(REFERRAL_DISCOUNT_RATE * 100),
       referralRewardPoints: REFERRAL_REWARD_POINTS

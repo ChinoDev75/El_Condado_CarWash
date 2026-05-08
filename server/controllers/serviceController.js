@@ -181,7 +181,7 @@ exports.seedServices = async (req, res) => {
         description: 'Sin renovacion automatica. Solo 1 vehiculo',
         isTrimestral: true,
         waMsg: 'Hola! Quiero contratar la Membresia Trimestral por Q300',
-        features: ['6 lavados completos', '3 lavados exteriores', 'Atencion prioritaria']
+        features: ['9 visitas en 3 meses', '6 lavados completos', '3 lavados exteriores', 'Agenda completa desde el primer dia']
       },
       {
         title: 'Encerado con Cera Liquida',
