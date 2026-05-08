@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 require('dotenv').config();
+const { ensureBookingSlotIndex } = require('./utils/bookingIndexes');
 const {
   validateEnv,
   securityHeaders,
@@ -23,7 +24,10 @@ mongoose.set('bufferCommands', false);
 mongoose.connect(process.env.MONGODB_URI, {
   serverSelectionTimeoutMS: 10000
 })
-  .then(() => console.log('MongoDB connected successfully'))
+  .then(async () => {
+    console.log('MongoDB connected successfully');
+    await ensureBookingSlotIndex();
+  })
   .catch((err) => console.error('MongoDB connection error:', err));
 
 // Middleware

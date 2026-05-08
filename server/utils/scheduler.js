@@ -9,7 +9,7 @@ const {
   parseDateKeyToUtcDate
 } = require('./dateTime');
 
-const ACTIVE_BOOKING_STATUSES = ['awaiting_payment', 'pending', 'confirmed'];
+const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed'];
 
 const DEFAULT_WEEKLY_SCHEDULE = [
   { day: 0, enabled: false, start: '08:00', end: '17:00' },
@@ -184,7 +184,7 @@ const getBlockingIntervals = async (date, options = {}) => {
   const activeBookings = await Booking.find({
     $or: [
       { status: { $in: ACTIVE_BOOKING_STATUSES }, date },
-      { status: { $ne: 'cancelled' }, 'membershipSchedule.date': date }
+      { status: { $nin: ['awaiting_payment', 'cancelled'] }, 'membershipSchedule.date': date }
     ]
   }).populate('service', 'title durationMinutes');
 

@@ -360,7 +360,7 @@ bookingSchema.index(
   { date: 1, time: 1 },
   {
     unique: true,
-    partialFilterExpression: { status: { $in: ['awaiting_payment', 'pending', 'confirmed'] } }
+    partialFilterExpression: { status: { $in: ['pending', 'confirmed'] } }
   }
 );
 

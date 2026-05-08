@@ -63,7 +63,7 @@ const hasSameBookingConflict = ({ booking, visitId, date, time, durationMinutes 
 
   const endMinutes = startMinutes + durationMinutes;
 
-  if (['awaiting_payment', 'pending', 'confirmed'].includes(booking.status) && getDateKeyFromStoredDate(booking.date) === dateKey) {
+  if (['pending', 'confirmed'].includes(booking.status) && getDateKeyFromStoredDate(booking.date) === dateKey) {
     const bookingStart = parseTimeToMinutes(booking.time);
     const bookingDuration = booking.customMembership?.firstVisitDurationMinutes || booking.service?.durationMinutes || 60;
 

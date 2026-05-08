@@ -6,6 +6,7 @@ const { protect } = require('../middleware/auth');
 const { rateLimit } = require('../middleware/rateLimit');
 const { isValidObjectId } = require('../utils/validation');
 const { awardReferralReward } = require('../utils/referrals');
+const { isSlotAvailable } = require('../utils/scheduler');
 const { auditLog } = require('../utils/auditLogger');
 
 const paymentLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 30, name: 'payments' });
@@ -21,27 +22,81 @@ const appendInternalNote = (booking, note) => {
   return [currentNotes, note].filter(Boolean).join('\n').slice(0, 500);
 };
 
+const paidNeedsReprogrammingMessage = 'El pago fue recibido, pero la reserva no quedo confirmada. Contactanos para reprogramarla.';
+
+const canConfirmPaidBooking = async (booking) => {
+  await booking.populate('service', 'title durationMinutes');
+
+  const firstVisitDuration = booking.customMembership?.firstVisitDurationMinutes || booking.service?.durationMinutes || 60;
+  const firstVisitAvailable = await isSlotAvailable({
+    date: booking.date,
+    time: booking.time,
+    durationMinutes: firstVisitDuration,
+    excludeBookingId: booking._id
+  });
+
+  if (!firstVisitAvailable) {
+    return false;
+  }
+
+  for (const visit of booking.membershipSchedule || []) {
+    if (visit.status !== 'scheduled') {
+      continue;
+    }
+
+    const visitAvailable = await isSlotAvailable({
+      date: visit.date,
+      time: visit.time,
+      durationMinutes: visit.durationMinutes || 60,
+      excludeBookingId: booking._id
+    });
+
+    if (!visitAvailable) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const markPaidWithoutConfirmation = async (booking, note, eventId = null) => {
+  const now = new Date();
+  booking.paymentStatus = 'paid';
+  booking.paidAt = booking.paidAt || now;
+  booking.status = 'cancelled';
+  booking.expiresAt = null;
+  booking.internalNotes = appendInternalNote(booking, note);
+
+  if (eventId) {
+    booking.recurrenteEventId = eventId;
+  }
+
+  await awardReferralReward(booking);
+  await booking.save();
+};
+
 const markBookingPaid = async (booking, eventId = null) => {
   const now = new Date();
   const paymentHoldExpired = booking.expiresAt && booking.expiresAt <= now;
   const cannotAutoConfirm = booking.status === 'cancelled' || paymentHoldExpired;
 
   if (cannotAutoConfirm) {
-    booking.paymentStatus = 'paid';
-    booking.paidAt = booking.paidAt || now;
-    booking.expiresAt = null;
-    booking.internalNotes = appendInternalNote(
+    await markPaidWithoutConfirmation(
       booking,
-      'Pago recibido despues de que la reserva expiro. Reprogramar manualmente antes de atender.'
+      'Pago recibido despues de que la reserva expiro. Reprogramar manualmente antes de atender.',
+      eventId
     );
-
-    if (eventId) {
-      booking.recurrenteEventId = eventId;
-    }
-
-    await awardReferralReward(booking);
-    await booking.save();
     return { confirmed: false, reason: 'expired' };
+  }
+
+  const canConfirm = await canConfirmPaidBooking(booking);
+  if (!canConfirm) {
+    await markPaidWithoutConfirmation(
+      booking,
+      'Pago recibido, pero el horario ya no esta disponible. Reprogramar manualmente antes de atender.',
+      eventId
+    );
+    return { confirmed: false, reason: 'slot_conflict' };
   }
 
   if (booking.paymentStatus !== 'paid') {
@@ -56,7 +111,21 @@ const markBookingPaid = async (booking, eventId = null) => {
   }
 
   await awardReferralReward(booking);
-  await booking.save();
+  try {
+    await booking.save();
+  } catch (error) {
+    if (error.code === 11000) {
+      await markPaidWithoutConfirmation(
+        booking,
+        'Pago recibido, pero el horario ya no esta disponible. Reprogramar manualmente antes de atender.',
+        eventId
+      );
+      return { confirmed: false, reason: 'slot_conflict' };
+    }
+
+    throw error;
+  }
+
   return { confirmed: true };
 };
 
@@ -84,7 +153,7 @@ router.get('/verify/:bookingId', protect, paymentLimiter, async (req, res) => {
       if (booking.status === 'cancelled') {
         return res.json({
           status: 'paid_expired',
-          message: 'El pago fue recibido, pero la reserva ya habia expirado. Contactanos para reprogramarla.'
+          message: paidNeedsReprogrammingMessage
         });
       }
 
@@ -101,7 +170,7 @@ router.get('/verify/:bookingId', protect, paymentLimiter, async (req, res) => {
       if (!paymentResult.confirmed) {
         return res.json({
           status: 'paid_expired',
-          message: 'El pago fue recibido, pero la reserva ya habia expirado. Contactanos para reprogramarla.'
+          message: paidNeedsReprogrammingMessage
         });
       }
       return res.json({ status: 'paid', message: 'Simulacion: pago verificado exitosamente' });
@@ -125,7 +194,7 @@ router.get('/verify/:bookingId', protect, paymentLimiter, async (req, res) => {
       if (!paymentResult.confirmed) {
         return res.json({
           status: 'paid_expired',
-          message: 'El pago fue recibido, pero la reserva ya habia expirado. Contactanos para reprogramarla.'
+          message: paidNeedsReprogrammingMessage
         });
       }
       return res.json({ status: 'paid', message: 'Pago verificado exitosamente' });
