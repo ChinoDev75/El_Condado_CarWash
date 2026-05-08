@@ -13,7 +13,7 @@
     "start": "npm start --prefix server"
   },
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
