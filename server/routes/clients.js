@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const Booking = require('../models/Booking');
 const ClientInvite = require('../models/ClientInvite');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
@@ -12,6 +13,7 @@ const {
   sanitizeString
 } = require('../utils/validation');
 const { ensureReferralCode } = require('../utils/referrals');
+const { calculateLoyaltyPoints } = require('../utils/loyaltyPoints');
 const { auditLog } = require('../utils/auditLogger');
 
 const router = express.Router();
@@ -158,7 +160,33 @@ router.post('/invitations/:token/complete', inviteLimiter, async (req, res) => {
     invite.claimedAt = new Date();
     await invite.save();
 
-    auditLog('client_invite.claimed', { inviteId: invite._id, userId: user._id });
+    const linkedBookings = await Booking.find({ clientInvite: invite._id });
+    let awardedPoints = 0;
+
+    for (const booking of linkedBookings) {
+      booking.user = user._id;
+      booking.customerName = user.name;
+      booking.customerEmail = user.email;
+      booking.customerPhone = user.phone || booking.customerPhone;
+      booking.customerAddress = user.address || booking.customerAddress;
+
+      if (booking.status === 'completed' && booking.paymentStatus === 'paid' && !booking.pointsAwarded) {
+        await booking.populate('service', 'price');
+        const points = calculateLoyaltyPoints(booking);
+        booking.pointsAwarded = true;
+        booking.loyaltyPointsAwarded = points;
+        awardedPoints += points;
+      }
+
+      await booking.save();
+    }
+
+    if (awardedPoints > 0) {
+      user.loyalty_points = (user.loyalty_points || 0) + awardedPoints;
+      await user.save();
+    }
+
+    auditLog('client_invite.claimed', { inviteId: invite._id, userId: user._id, linkedBookings: linkedBookings.length, awardedPoints });
     return sendTokenResponse(user, 201, res);
   } catch (error) {
     if (error.code === 11000) {

@@ -6,6 +6,12 @@ const bookingSchema = new mongoose.Schema({
     ref: 'User',
     index: true
   },
+  clientInvite: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ClientInvite',
+    default: null,
+    index: true
+  },
   customerName: {
     type: String,
     trim: true,

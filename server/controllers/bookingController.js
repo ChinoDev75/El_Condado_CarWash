@@ -1,4 +1,5 @@
 const Booking = require('../models/Booking');
+const ClientInvite = require('../models/ClientInvite');
 const Service = require('../models/Service');
 const User = require('../models/User');
 const { createRecurrenteCheckout } = require('../utils/recurrente');
@@ -876,10 +877,37 @@ exports.createAdminBooking = async (req, res) => {
     }
 
     const { bookingDate, cleanPlate, service } = validation;
-    const customerName = sanitizeString(req.body.customerName, 100);
-    const customerPhone = sanitizeString(req.body.customerPhone, 30);
-    const customerEmail = normalizeEmail(req.body.customerEmail);
-    const customerAddress = sanitizeString(req.body.customerAddress, 220);
+    let linkedUser = null;
+    let linkedInvite = null;
+
+    if (req.body.clientUserId) {
+      if (!isValidObjectId(req.body.clientUserId)) {
+        return res.status(400).json({ message: 'Cliente seleccionado invalido.' });
+      }
+
+      linkedUser = await User.findById(req.body.clientUserId).select('name email phone address role');
+      if (!linkedUser || linkedUser.role !== 'client') {
+        return res.status(404).json({ message: 'Cliente registrado no encontrado.' });
+      }
+    } else if (req.body.clientInviteId) {
+      if (!isValidObjectId(req.body.clientInviteId)) {
+        return res.status(400).json({ message: 'Invitacion de cliente invalida.' });
+      }
+
+      linkedInvite = await ClientInvite.findById(req.body.clientInviteId).populate('user', 'name email phone address role');
+      if (!linkedInvite) {
+        return res.status(404).json({ message: 'Cliente invitado no encontrado.' });
+      }
+
+      if (linkedInvite.user) {
+        linkedUser = linkedInvite.user;
+      }
+    }
+
+    const customerName = sanitizeString(req.body.customerName || linkedUser?.name || linkedInvite?.name, 100);
+    const customerPhone = sanitizeString(req.body.customerPhone || linkedUser?.phone || linkedInvite?.phone, 30);
+    const customerEmail = normalizeEmail(req.body.customerEmail || linkedUser?.email || '');
+    const customerAddress = sanitizeString(req.body.customerAddress || linkedUser?.address || linkedInvite?.address, 220);
     const washMode = getValidatedWashMode(req.body.washMode);
 
     if (!customerName || !customerPhone) {
@@ -900,6 +928,8 @@ exports.createAdminBooking = async (req, res) => {
     });
 
     const booking = await Booking.create({
+      user: linkedUser?._id || null,
+      clientInvite: linkedInvite?._id || null,
       customerName,
       customerPhone,
       customerEmail,
@@ -928,6 +958,8 @@ exports.createAdminBooking = async (req, res) => {
       adminId: req.user.id,
       bookingId: booking._id,
       serviceId,
+      clientUserId: linkedUser?._id,
+      clientInviteId: linkedInvite?._id,
       paymentMethod,
       paymentStatus,
       washMode

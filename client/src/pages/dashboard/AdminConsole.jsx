@@ -69,6 +69,9 @@ const defaultMetrics = {
 };
 
 const emptyManualBooking = {
+  clientMode: 'manual',
+  clientUserId: '',
+  clientInviteId: '',
   customerName: '',
   customerPhone: '',
   customerEmail: '',
@@ -831,12 +834,30 @@ export default function AdminConsole() {
     setManualModalOpen(true);
   };
 
+  const buildManualClientFields = (client) => ({
+    customerName: client?.name || '',
+    customerPhone: client?.phone || '',
+    customerEmail: client?.email || '',
+    customerAddress: client?.address || ''
+  });
+
   const handleManualChange = (event) => {
     const { name, value } = event.target;
     setManualForm((prev) => ({
       ...prev,
       [name]: name === 'plate' ? normalizePlate(value) : value,
-      ...(name === 'serviceId' || name === 'date' ? { time: '' } : {})
+      ...(name === 'serviceId' || name === 'date' ? { time: '' } : {}),
+      ...(name === 'clientMode' ? {
+        clientUserId: '',
+        clientInviteId: '',
+        customerName: '',
+        customerPhone: '',
+        customerEmail: '',
+        customerAddress: ''
+      } : {}),
+      ...(name === 'clientUserId'
+        ? buildManualClientFields(data.users.find((client) => client._id === value))
+        : {})
     }));
   };
 
@@ -883,18 +904,54 @@ export default function AdminConsole() {
     }
 
     try {
+      if (manualForm.clientMode === 'existing' && !manualForm.clientUserId) {
+        showAlert({ type: 'warning', title: 'Selecciona un cliente', message: 'Elige un cliente registrado para vincular la cita a su cuenta.' });
+        return;
+      }
+
+      let createdInvite = null;
+      if (manualForm.clientMode === 'new_invite') {
+        if (!manualForm.customerName || !manualForm.customerPhone || !manualForm.customerAddress) {
+          showAlert({ type: 'warning', title: 'Faltan datos del cliente', message: 'Para invitarlo necesitas nombre, WhatsApp y direccion.' });
+          return;
+        }
+
+        createdInvite = await apiFetch('/clients', {
+          method: 'POST',
+          token,
+          body: JSON.stringify({
+            name: manualForm.customerName,
+            phone: manualForm.customerPhone,
+            address: manualForm.customerAddress
+          })
+        });
+      }
+
       await apiFetch('/bookings/admin', {
         method: 'POST',
         token,
         body: JSON.stringify({
           ...manualForm,
+          clientUserId: manualForm.clientMode === 'existing' ? manualForm.clientUserId : '',
+          clientInviteId: createdInvite?._id || '',
           plate: normalizedPlate,
           washMode: manualForm.washMode
         })
       });
       setManualModalOpen(false);
       fetchAllData();
-      showAlert({ type: 'success', title: 'Reserva creada', message: 'La cita manual quedo registrada en tu agenda.' });
+      if (createdInvite) {
+        openWhatsappInvite(createdInvite.whatsappUrl || createdInvite.lastWhatsappUrl);
+      }
+      showAlert({
+        type: 'success',
+        title: 'Reserva creada',
+        message: createdInvite
+          ? 'La cita quedo agendada y se abrio la invitacion para que el cliente cree su cuenta.'
+          : manualForm.clientMode === 'existing'
+            ? 'La cita quedo vinculada al cliente y sumara puntos cuando este pagada y completada.'
+            : 'La cita manual quedo registrada en tu agenda.'
+      });
     } catch (err) {
       showAlert({ type: 'error', title: 'No se pudo crear la reserva manual', message: err.message || 'Revisa la disponibilidad e intenta de nuevo.' });
     }
@@ -921,6 +978,9 @@ export default function AdminConsole() {
   const filteredCalendarEvents = useMemo(() => (
     calendarEvents.filter((event) => matchesEventFilters(event, calendarFilters))
   ), [calendarEvents, calendarFilters]);
+  const clientUsers = useMemo(() => (
+    data.users.filter((user) => user.role === 'client')
+  ), [data.users]);
   const upcomingBookingRows = useMemo(() => (
     bookingRows
       .filter((row) => {
@@ -955,6 +1015,7 @@ export default function AdminConsole() {
   const manualSubtotalCents = parsePriceCents(selectedManualService?.price);
   const manualFeeCents = manualForm.paymentMethod === 'card' ? calculateCardFee(manualSubtotalCents) : 0;
   const manualTotalCents = manualSubtotalCents + manualFeeCents;
+  const manualPointsEstimate = manualSubtotalCents > 0 ? Math.max(1, Math.floor(manualSubtotalCents / 300)) : 0;
 
   const moveCalendarMonth = (amount) => {
     setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth() + amount, 1));
@@ -1087,6 +1148,39 @@ export default function AdminConsole() {
         title="Agendar desde Admin"
       >
         <form onSubmit={saveManualBooking} style={{ display: 'grid', gap: '1rem' }}>
+          <div style={{ display: 'grid', gap: '8px' }}>
+            <label style={{ display: 'block', color: '#a0aec0', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase' }}>Cliente para esta cita</label>
+            <select name="clientMode" value={manualForm.clientMode} onChange={handleManualChange} style={inputStyle}>
+              <option value="manual">Solo guardar datos manuales</option>
+              <option value="existing">Vincular cliente registrado</option>
+              <option value="new_invite">Crear cliente e invitar por WhatsApp</option>
+            </select>
+            {manualForm.clientMode === 'manual' && (
+              <p style={{ margin: 0, color: '#718096', fontSize: '0.78rem' }}>
+                Esta cita no suma puntos hasta que este vinculada a una cuenta.
+              </p>
+            )}
+            {manualForm.clientMode === 'existing' && (
+              <>
+                <select name="clientUserId" value={manualForm.clientUserId} onChange={handleManualChange} style={inputStyle} required>
+                  <option value="">Selecciona un cliente registrado</option>
+                  {clientUsers.map((client) => (
+                    <option key={client._id} value={client._id}>
+                      {client.name} - {client.phone || client.email}
+                    </option>
+                  ))}
+                </select>
+                <p style={{ margin: 0, color: '#25D366', fontSize: '0.78rem' }}>
+                  La cita quedara en su cuenta y ganara {manualPointsEstimate} pts al completarse pagada.
+                </p>
+              </>
+            )}
+            {manualForm.clientMode === 'new_invite' && (
+              <p style={{ margin: 0, color: '#D4AF37', fontSize: '0.78rem' }}>
+                Al crear la reserva se abrira WhatsApp con la invitacion. Cuando complete su cuenta, esta cita quedara vinculada.
+              </p>
+            )}
+          </div>
           <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <InputField label="Cliente" name="customerName" value={manualForm.customerName} onChange={handleManualChange} placeholder="Nombre del cliente" required />
             <InputField label="Telefono" name="customerPhone" value={manualForm.customerPhone} onChange={handleManualChange} placeholder="WhatsApp" required />
@@ -1165,6 +1259,11 @@ export default function AdminConsole() {
               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#D4AF37' }}><span>Comision tarjeta</span><span>{formatCurrency(manualFeeCents)}</span></div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#fff', fontWeight: 900, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}><span>Total a cobrar</span><span>{formatCurrency(manualTotalCents)}</span></div>
+            {manualForm.clientMode !== 'manual' && (
+              <div style={{ color: '#25D366', fontSize: '0.78rem', fontWeight: 800 }}>
+                Puntos estimados para el cliente: {manualPointsEstimate} pts
+              </div>
+            )}
           </div>
           <div>
             <label style={{ display: 'block', color: '#a0aec0', fontSize: '0.85rem', fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase' }}>Notas internas</label>
