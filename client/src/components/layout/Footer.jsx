@@ -127,7 +127,7 @@ export default function Footer({ onAuthOpen, onTermsOpen }) {
             <p style={{ color: "#718096", fontSize: "0.9rem", lineHeight: 1.6 }}>
               Lunes a Sábado
               <br />
-              El Condado, Guatemala
+              El Condado San Jacinto, Guatemala
             </p>
           </div>
 
@@ -186,7 +186,7 @@ export default function Footer({ onAuthOpen, onTermsOpen }) {
           }}
         >
           <p style={{ color: "#4a5568", fontSize: "0.85rem" }}>
-            © 2025 El Condado CarWash · Todos los derechos reservados.
+            © 2026 El Condado CarWash · Todos los derechos reservados.
           </p>
           <button
             onClick={onTermsOpen}
